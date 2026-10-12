@@ -5,7 +5,21 @@ Quality gates for Octopus components: the Gradle convention plugin
 `org.octopusden.octopus:octopus-quality-plugin`.
 
 The plugin wires linters, coverage and publication checks into JVM builds
-(Java, Kotlin, Groovy) with versions pinned per plugin release.
+(Java, Kotlin, Groovy). Checkstyle, PMD, SpotBugs and ErrorProne (default engine
+version) are pinned per plugin release; detekt, ktlint, Kover and the Kotlin Gradle
+plugin come from the consumer build, at the versions it declares.
+
+The plugin is published to Maven Central only, so add it to the plugin repositories:
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+```
 
 ```kotlin
 plugins {
