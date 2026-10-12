@@ -209,7 +209,7 @@ publishing {
         pom {
             name.set("Octopus JVM Quality Gates Plugin")
             description.set("Convention plugin for unified quality gates across octopusden JVM repositories")
-            url.set("https://github.com/octopusden/octopus-base")
+            url.set("https://github.com/octopusden/octopus-quality-gates")
             licenses {
                 license {
                     name.set("The Apache License, Version 2.0")
@@ -217,8 +217,8 @@ publishing {
                 }
             }
             scm {
-                url.set("https://github.com/octopusden/octopus-base")
-                connection.set("scm:git://github.com/octopusden/octopus-base.git")
+                url.set("https://github.com/octopusden/octopus-quality-gates")
+                connection.set("scm:git://github.com/octopusden/octopus-quality-gates.git")
             }
             developers {
                 developer {
