@@ -1,0 +1,22 @@
+# PUBLIC — static quality gates. Runs on push to main, via workflow_call (merge-gate), and manually.
+# The plugin does not apply itself, so qualityStatic/qualityCoverage do not exist here:
+# the commands are the plugin's own detekt/ktlint/Kover gates.
+name: Quality
+
+on:
+  push:
+    branches: [ main ]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: octopusden/octopus-base/.github/workflows/common-java-gradle-quality-gates.yml@v3.2.0
+    with:
+      java-version: '17'
+      static-command: ./gradlew detekt ktlintCheck --no-daemon --stacktrace
+      coverage-command: ./gradlew koverXmlReport koverVerify --no-daemon --stacktrace
+    secrets: inherit
