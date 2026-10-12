@@ -47,3 +47,17 @@ Consumer wiring, tool versions and report paths are still documented in octopus-
 ```
 
 JDK 17 to run Gradle; the plugin targets Java 11 bytecode.
+
+## Release
+
+Run the **Gradle Release** workflow (Actions → Gradle Release → Run workflow) on `main`:
+
+- `increment-version-level` — `patch` / `minor` / `major`, bumped from the latest `vX.Y.Z` tag;
+- `dry-run` — rehearse without publishing, tagging or registering;
+- `resume-deployment-id` — only to recover a run that failed after the upload, with the id the
+  failed run printed as `RELEASE_PUBLISH_RESUME_DEPLOYMENT_ID`. Do not plainly re-run such a run:
+  it would upload the same version twice.
+
+The release publishes to Maven Central through the Central Portal, tags the commit, creates the
+GitHub release and registers the version in octopus-release-log, which triggers TeamCity
+`[p] octopus-quality-gates` → Release Post Processing.
