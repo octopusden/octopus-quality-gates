@@ -50,7 +50,8 @@ JDK 17 to run Gradle; the plugin targets Java 11 bytecode.
 
 ## Release
 
-Run the **Gradle Release** workflow (Actions → Gradle Release → Run workflow) on `main`:
+Run the **Gradle Release** workflow (Actions → Gradle Release → Run workflow) on `main`. It runs the
+quality gates (detekt, ktlint, Kover) first and releases only if they pass. Inputs:
 
 - `increment-version-level` — `patch` / `minor` / `major`, bumped from the latest `vX.Y.Z` tag;
 - `dry-run` — rehearse without publishing, tagging or registering;

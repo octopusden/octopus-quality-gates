@@ -41,7 +41,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The same detekt/ktlint/Kover gates as the merge gate: nothing is published from a commit
+  # that does not pass them.
+  quality:
+    uses: ./.github/workflows/quality.yml
+    secrets: inherit
+
   release:
+    needs: [ quality ]
     uses: octopusden/octopus-base/.github/workflows/common-java-gradle-release.yml@v3.2.0
     with:
       flow-type: public
