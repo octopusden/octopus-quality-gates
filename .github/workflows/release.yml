@@ -1,6 +1,8 @@
 # PUBLIC — releases the plugin to Maven Central: version from the latest vX.Y.Z tag, Central
-# Portal publish (which confirms every deployed artifact, the plugin marker included, is
-# resolvable before anything is tagged), tag, GitHub release and octopus-release-log entry.
+# Portal publish (which confirms every artifact in the deployment is resolvable before anything
+# is tagged), tag, GitHub release and octopus-release-log entry. The plugin marker is checked
+# only because java-gradle-plugin always publishes it: the shared workflow cannot yet require
+# specific coordinates, as octopus-base's publish-quality-plugin did with REQUIRE_COORDS.
 name: Gradle Release
 
 on:
