@@ -58,6 +58,16 @@ Run the **Gradle Release** workflow (Actions → Gradle Release → Run workflow
   failed run printed as `RELEASE_PUBLISH_RESUME_DEPLOYMENT_ID`. Do not plainly re-run such a run:
   it would upload the same version twice.
 
+Recovering a run that failed after the upload:
+
+- If another release run is waiting in the `release` queue, cancel it first. It starts as soon as
+  the failed run ends, computes the same version (no tag was created) and uploads it again.
+- Dispatch the resume with the same `increment-version-level`: the version is recomputed from the
+  latest tag, and the Portal refuses a deployment whose version does not match.
+- Resume before anything else is merged into `main`. The resume run tags the commit it checks out,
+  so a newer `main` would get a tag on a commit that was never built. If `main` has moved, dispatch
+  from a branch created at the failed run's "Built commit".
+
 The release publishes to Maven Central through the Central Portal, tags the commit, creates the
 GitHub release and registers the version in octopus-release-log, which triggers TeamCity
 `[p] octopus-quality-gates` → Release Post Processing.
