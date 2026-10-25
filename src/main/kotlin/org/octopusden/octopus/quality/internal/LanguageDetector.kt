@@ -12,12 +12,23 @@ internal data class DetectedLanguages(
 }
 
 internal object LanguageDetector {
+    private const val CACHE_KEY = "octopusQuality.detectedLanguages"
+
     /**
      * A language is present when a file with its extension exists under `src/` (any source set,
      * any directory name, so Kotlin under `src/main/java` is Kotlin). Stops at the first file of
      * each language; `.kts` build scripts are not `.kt`.
+     *
+     * Computed once per [Project] instance (cached in its extra properties, never statically:
+     * the daemon outlives builds), as callers invoke this repeatedly per project.
      */
     fun detect(project: Project): DetectedLanguages {
+        val extra = project.extensions.extraProperties
+        if (extra.has(CACHE_KEY)) return extra.get(CACHE_KEY) as DetectedLanguages
+        return scan(project).also { extra.set(CACHE_KEY, it) }
+    }
+
+    private fun scan(project: Project): DetectedLanguages {
         var hasKotlin = false
         var hasJava = false
         var hasGroovy = false
