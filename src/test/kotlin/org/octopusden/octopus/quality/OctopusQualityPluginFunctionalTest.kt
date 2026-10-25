@@ -1424,6 +1424,36 @@ class OctopusQualityPluginFunctionalTest {
         )
     }
 
+    // Kotlin under src/main/java is Kotlin: the hollow-gate guard must demand detekt/ktlint.
+    @Test
+    fun `hollow gate - Kotlin file under src-main-java counts as Kotlin`() {
+        settingsFile(kotlinSettings("test-hollow-gate-kotlin-in-java-dir"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                java { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile(
+            "src/main/java/com/example/Hello.kt",
+            "package com.example\nfun hello() = \"Hello\"\n",
+        )
+
+        val result = runner("qualityStatic").buildAndFail()
+        assertTrue(
+            result.output.contains("Hollow quality gate"),
+            "Kotlin under src/main/java must trigger the hollow-gate guard; got: ${result.output}",
+        )
+    }
+
     // ---------------------------------------------------------------
     // Fix: ktlint must NOT be excluded just because the package path contains a
     // "build" segment. Pre-fix, the `**/build/**` glob excluded any source under a
@@ -1791,6 +1821,36 @@ class OctopusQualityPluginFunctionalTest {
             result.output.contains(":koverVerify"),
             "koverVerify must NOT run on check by default — Kover's onCheck convention must be disabled; got: ${result.output}",
         )
+    }
+
+    // An EMPTY src/test/java must not make a Kotlin-only repo Java: coverage stays Kover,
+    // no checkstyle/pmd.
+    @Test
+    fun `kotlin-only repo with empty src-test-java - stays kover and no checkstyle or pmd`() {
+        settingsFile(kotlinSettings("test-empty-java-dir"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("io.gitlab.arturbosch.detekt") version "1.23.5"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Hello.kt", "package com.example\nfun hello() = 1\n")
+        subDir("src/test/java")
+
+        val result = runner("qualityCheck", "--dry-run").build()
+        assertTrue(result.output.contains(":koverXmlReport"), "Coverage must stay Kover; got: ${result.output}")
+        assertFalse(result.output.contains(":jacocoTestReport"), "JaCoCo must not be selected; got: ${result.output}")
+        assertFalse(result.output.contains(":checkstyleMain"), "checkstyle must not be wired; got: ${result.output}")
+        assertFalse(result.output.contains(":pmdMain"), "pmd must not be wired; got: ${result.output}")
     }
 
     // ---------------------------------------------------------------
