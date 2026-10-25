@@ -2948,4 +2948,83 @@ class OctopusQualityPluginFunctionalTest {
             "The root's classes stay in the denominator although its suite is excluded",
         )
     }
+
+    // ===============================================================
+    // Excluding a module's `test` must not leave it reachable through that module's coverage
+    // report/verify tasks, which depend on `test` (#9).
+    // ===============================================================
+
+    /** Two Kotlin modules, `lib` and `app`, on the Kover path (the root applies Kover `apply false`). */
+    private fun twoModuleKoverBuild(excludeTasksArgs: String) =
+        """
+        plugins {
+            kotlin("jvm") version "1.9.25" apply false
+            id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+            id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+            id("org.jetbrains.kotlinx.kover") version "0.9.4" apply false
+            id("org.octopusden.octopus-quality")
+        }
+        subprojects {
+            apply(plugin = "org.jetbrains.kotlin.jvm")
+            apply(plugin = "io.gitlab.arturbosch.detekt")
+            apply(plugin = "org.jlleitschuh.gradle.ktlint")
+            apply(plugin = "org.jetbrains.kotlinx.kover")
+            repositories { mavenCentral() }
+        }
+        octopusQuality {
+            kotlin { failOnViolation.set(false) }
+            excludeTasks($excludeTasksArgs)
+        }
+        """.trimIndent()
+
+    private fun scheduledTasks(result: BuildResult): List<String> =
+        result.output
+            .lines()
+            .filter { it.startsWith(":") }
+            .map { it.substringBefore(' ') }
+
+    @Test
+    fun `kover - excluding a module's test keeps it out of qualityCoverage`() {
+        settingsFile(kotlinSettings("test-kover-exclude-test", """include("lib", "app")"""))
+        buildFile(twoModuleKoverBuild("\":lib:test\""))
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+        writeKotlinFile("app/src/main/kotlin/com/example/App.kt", "package com.example\nfun app() = 1\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":lib:test" in tasks, "excluded suite must not be scheduled; got: $tasks")
+        assertFalse(":lib:koverXmlReport" in tasks, "coverage report of a module without its suite must not be scheduled; got: $tasks")
+        assertFalse(":lib:koverVerify" in tasks, "coverage verify of a module without its suite must not be scheduled; got: $tasks")
+        assertTrue(":app:test" in tasks, "other modules are unaffected; got: $tasks")
+        assertTrue(":app:koverVerify" in tasks, "other modules are unaffected; got: $tasks")
+    }
+
+    @Test
+    fun `kover - excluding the bare test task keeps every module out of qualityCoverage`() {
+        settingsFile(kotlinSettings("test-kover-exclude-bare-test", """include("lib", "app")"""))
+        buildFile(twoModuleKoverBuild("\"test\""))
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+        writeKotlinFile("app/src/main/kotlin/com/example/App.kt", "package com.example\nfun app() = 1\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertTrue(tasks.none { it.endsWith(":test") }, "no suite may be scheduled; got: $tasks")
+        assertTrue(tasks.none { it.contains(":kover") }, "no per-module coverage task may be scheduled; got: $tasks")
+    }
+
+    @Test
+    fun `jacoco - excluding a module's test keeps it out of qualityCoverage`() {
+        settingsFile(kotlinSettings("test-jacoco-exclude-test", """include("alpha", "beta")"""))
+        buildFile(multiModuleJacocoBuild(quality = """excludeTasks(":beta:test")"""))
+        writeJavaCalcModule("alpha")
+        writeJavaCalcModule("beta")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":beta:test" in tasks, "excluded suite must not be scheduled; got: $tasks")
+        assertFalse(":beta:jacocoTestReport" in tasks, "got: $tasks")
+        assertFalse(":beta:jacocoTestCoverageVerification" in tasks, "got: $tasks")
+        assertTrue(":alpha:test" in tasks, "other modules are unaffected; got: $tasks")
+        assertTrue(":jacocoOverallCoverageReport" in tasks, "the overall aggregate still runs; got: $tasks")
+    }
 }
