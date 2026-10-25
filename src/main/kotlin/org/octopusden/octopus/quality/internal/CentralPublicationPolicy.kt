@@ -82,6 +82,9 @@ internal object CentralPublicationPolicy {
     ) {
         val declared = rootExtension.publication.centralPublications
         val enforce = rootExtension.publication.enforceCentralPublications
+        // A provider, not a Project reference in the action: Gradle fixes its value when it stores the
+        // configuration cache entry, so the task action never touches the Project model.
+        val publishing = project.provider { actualPublications(project) }
 
         val verifyTask =
             project.tasks.register(TASK_NAME) { task ->
@@ -97,7 +100,7 @@ internal object CentralPublicationPolicy {
 
                 task.doLast {
                     val expected = declared.get()
-                    val actual = actualPublications(project)
+                    val actual = publishing.get()
                     if (actual != expected) {
                         throw GradleException(
                             buildString {

@@ -5,6 +5,7 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.octopusden.octopus.quality.OctopusQualityExtension
+import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
@@ -24,6 +25,16 @@ import javax.xml.parsers.DocumentBuilderFactory
  * enforces Maven Central readiness on `check` for repos that don't publish there.
  */
 internal object PublicationValidator {
+    /** What the task action needs to know about one publication, resolved without a Project. */
+    private class PubInfo(
+        val name: String,
+        val pomOnly: Boolean,
+        val hasSourcesJar: Boolean,
+        val hasJavadocJar: Boolean,
+        val pomTaskName: String,
+        val pomFile: File?,
+    )
+
     fun register(
         project: Project,
         rootExtension: OctopusQualityExtension,
@@ -41,15 +52,17 @@ internal object PublicationValidator {
                         project.tasks.withType(GenerateMavenPom::class.java),
                     )
 
-                    task.doLast {
-                        val publishing =
-                            project.extensions.getByType(PublishingExtension::class.java)
-                        val publications =
-                            publishing.publications.withType(MavenPublication::class.java)
+                    // Resolved when the configuration cache entry is stored (or at execution without
+                    // it), so the action below never references the Project.
+                    val snapshots = project.provider { snapshot(project) }
+                    val projectPath = project.path
+
+                    task.doLast { self ->
+                        val publications = snapshots.get()
 
                         if (publications.isEmpty()) {
-                            project.logger.warn(
-                                "validatePublications: no MavenPublication found in ${project.path}",
+                            self.logger.warn(
+                                "validatePublications: no MavenPublication found in $projectPath",
                             )
                             return@doLast
                         }
@@ -57,12 +70,11 @@ internal object PublicationValidator {
                         val errors = mutableListOf<String>()
 
                         for (pub in publications) {
-                            val prefix = "${project.path}:${pub.name}"
-                            val pomOnly = isPomOnly(pub)
+                            val prefix = "$projectPath:${pub.name}"
 
-                            validatePomFromXml(project, pub, prefix, errors)
+                            validatePomFromXml(pub, prefix, errors)
 
-                            if (!pomOnly) {
+                            if (!pub.pomOnly) {
                                 validateArtifacts(pub, prefix, errors)
                             }
                         }
@@ -81,9 +93,9 @@ internal object PublicationValidator {
                             throw org.gradle.api.GradleException(message)
                         }
 
-                        project.logger.lifecycle(
+                        self.logger.lifecycle(
                             "validatePublications: ${publications.size} publication(s) " +
-                                "in ${project.path} passed Maven Central checks",
+                                "in $projectPath passed Maven Central checks",
                         )
                     }
                 }
@@ -102,22 +114,36 @@ internal object PublicationValidator {
         }
     }
 
+    private fun snapshot(project: Project): List<PubInfo> =
+        project.extensions
+            .getByType(PublishingExtension::class.java)
+            .publications
+            .withType(MavenPublication::class.java)
+            .map { pub ->
+                // Resolve POM file from the actual GenerateMavenPom task output (not hardcoded path)
+                val pomTaskName = "generatePomFileFor${pub.name.replaceFirstChar { it.uppercase() }}Publication"
+                PubInfo(
+                    name = pub.name,
+                    pomOnly = isPomOnly(pub),
+                    // Maven Central requires -sources.jar and -javadoc.jar specifically (not .zip etc.)
+                    hasSourcesJar = pub.artifacts.any { it.classifier == "sources" && it.extension == "jar" },
+                    hasJavadocJar = pub.artifacts.any { it.classifier == "javadoc" && it.extension == "jar" },
+                    pomTaskName = pomTaskName,
+                    pomFile = (project.tasks.findByName(pomTaskName) as? GenerateMavenPom)?.destination,
+                )
+            }
+
     /**
      * Parse the generated POM XML and validate required Maven Central fields.
      */
     private fun validatePomFromXml(
-        project: Project,
-        pub: MavenPublication,
+        pub: PubInfo,
         prefix: String,
         errors: MutableList<String>,
     ) {
-        // Resolve POM file from the actual GenerateMavenPom task output (not hardcoded path)
-        val pubNameCap = pub.name.replaceFirstChar { it.uppercase() }
-        val pomTaskName = "generatePomFileFor${pubNameCap}Publication"
-        val pomTask = project.tasks.findByName(pomTaskName) as? GenerateMavenPom
         val pomFile =
-            pomTask?.destination ?: run {
-                errors.add("$prefix: GenerateMavenPom task '$pomTaskName' not found")
+            pub.pomFile ?: run {
+                errors.add("$prefix: GenerateMavenPom task '${pub.pomTaskName}' not found")
                 return
             }
 
@@ -173,23 +199,14 @@ internal object PublicationValidator {
     }
 
     private fun validateArtifacts(
-        pub: MavenPublication,
+        pub: PubInfo,
         prefix: String,
         errors: MutableList<String>,
     ) {
-        // Maven Central requires -sources.jar and -javadoc.jar specifically (not .zip etc.)
-        val hasSourcesJar =
-            pub.artifacts.any {
-                it.classifier == "sources" && it.extension == "jar"
-            }
-        val hasJavadocJar =
-            pub.artifacts.any {
-                it.classifier == "javadoc" && it.extension == "jar"
-            }
-        if (!hasSourcesJar) {
+        if (!pub.hasSourcesJar) {
             errors.add("$prefix: sources JAR missing (Maven Central requires -sources.jar)")
         }
-        if (!hasJavadocJar) {
+        if (!pub.hasJavadocJar) {
             errors.add("$prefix: javadoc JAR missing (Maven Central requires -javadoc.jar)")
         }
     }
