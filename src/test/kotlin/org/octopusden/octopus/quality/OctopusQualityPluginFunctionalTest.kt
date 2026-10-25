@@ -844,6 +844,43 @@ class OctopusQualityPluginFunctionalTest {
         assertTrue(output.contains("jar:extra"), output)
     }
 
+    @Test
+    fun `check runs with the configuration cache when the policy is not enforced`() {
+        settingsFile(kotlinSettings("test-cc-default"))
+        buildFile(publishingProject("octopusQuality { coverage { enabled.set(false) } }"))
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        val result = runner("check", "--configuration-cache").build()
+        assertEquals(TaskOutcome.SUCCESS, result.task(":validatePublications")?.outcome)
+    }
+
+    @Test
+    fun `check runs with the configuration cache when the declared set matches`() {
+        settingsFile(kotlinSettings("test-cc-enforced"))
+        buildFile(
+            publishingProject(
+                """
+                octopusQuality {
+                    coverage { enabled.set(false) }
+                    publication {
+                        enforceCentralPublications.set(true)
+                        centralPublications.set(
+                            setOf(
+                                ":|mavenJava|org.example:test-cc-enforced|[jar, jar:javadoc, jar:sources]",
+                            ),
+                        )
+                    }
+                }
+                """.trimIndent(),
+            ),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        val result = runner("check", "--configuration-cache").build()
+        assertEquals(TaskOutcome.SUCCESS, result.task(":validatePublications")?.outcome)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyCentralPublicationPolicy")?.outcome)
+    }
+
     // ---------------------------------------------------------------
     // 6. Publication validator: valid jar publication passes
     // ---------------------------------------------------------------
