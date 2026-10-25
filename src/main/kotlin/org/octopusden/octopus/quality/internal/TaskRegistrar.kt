@@ -128,7 +128,7 @@ internal object TaskRegistrar {
 
             if (!coverageEnabled) return@register
 
-            for (project in targets) {
+            for (project in targets.filterNot { skipCoverageIfTestExcluded(it, excludedTasks) }) {
                 when (coverageTool) {
                     CoverageExtension.Tool.JACOCO -> {
                         dependOnIfExists(task, project, "jacocoTestReport", excludedTasks)
@@ -152,10 +152,10 @@ internal object TaskRegistrar {
                 // expected to exist. Use the silent helper here so the absent half
                 // doesn't fire a spurious warning. If BOTH are missing, the per-project
                 // `dependOnExpectedTask` calls above will already have warned.
-                dependOnRootIfExists(task, rootProject, KOVER_MERGED_XML_REPORT)
-                dependOnRootIfExists(task, rootProject, KOVER_XML_REPORT)
-                dependOnRootIfExists(task, rootProject, KOVER_MERGED_VERIFY)
-                dependOnRootIfExists(task, rootProject, KOVER_VERIFY)
+                dependOnRootIfExists(task, rootProject, KOVER_MERGED_XML_REPORT, excludedTasks)
+                dependOnRootIfExists(task, rootProject, KOVER_XML_REPORT, excludedTasks)
+                dependOnRootIfExists(task, rootProject, KOVER_MERGED_VERIFY, excludedTasks)
+                dependOnRootIfExists(task, rootProject, KOVER_VERIFY, excludedTasks)
             }
         }
     }
@@ -331,7 +331,10 @@ internal object TaskRegistrar {
         task: Task,
         rootProject: Project,
         taskName: String,
+        excludedTasks: Set<String>,
     ) {
+        // Single-module build: the root's own report/verify are the module's, skipped with its excluded `test`.
+        if (rootProject.subprojects.isEmpty() && isTaskExcluded(rootProject.path, "test", excludedTasks)) return
         if (taskName in rootProject.tasks.names) {
             task.dependsOn(":$taskName")
         }

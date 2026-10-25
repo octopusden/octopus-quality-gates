@@ -26,6 +26,9 @@ open class OctopusQualityExtension
          * `qualityCheck`) — it prunes which analysis/coverage tasks those aggregates depend on.
          * It does NOT touch the standard `check` → `test` task graph: an excluded `test` still runs
          * under `check`, it is simply not pulled in by `qualityCoverage`.
+         *
+         * Excluding a module's `test` also drops that module's coverage report and verification from
+         * `qualityCoverage` (they depend on `test`), with a warning.
          */
         val excludedTasks: SetProperty<String> = objects.setProperty(String::class.java).convention(emptySet())
 

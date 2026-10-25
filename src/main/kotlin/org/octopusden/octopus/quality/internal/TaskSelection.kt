@@ -1,5 +1,7 @@
 package org.octopusden.octopus.quality.internal
 
+import org.gradle.api.Project
+
 /**
  * Fully qualified path of [taskName] in the project at [projectPath].
  *
@@ -42,3 +44,22 @@ internal fun isCoverageSuite(
 ): Boolean =
     (taskName == "test" || taskName in additionalTestTasks) &&
         !isTaskExcluded(projectPath, taskName, excludedTasks)
+
+/**
+ * True, after warning once, when [project]'s standard `test` task is excluded.
+ *
+ * The module's coverage report and verification depend on `test`, so wiring them into an aggregate
+ * would pull the excluded suite back into the graph; callers skip the module's coverage instead.
+ */
+internal fun skipCoverageIfTestExcluded(
+    project: Project,
+    excludedTasks: Set<String>,
+): Boolean {
+    if (!isTaskExcluded(project.path, "test", excludedTasks)) return false
+    project.logger.warn(
+        "octopusQuality: coverage of '${project.path}' is skipped because its test task is excluded. " +
+            "To drop the module from coverage deliberately use excludeProjects, " +
+            "or declare the suites that should count in coverage.additionalTestTasks.",
+    )
+    return true
+}
