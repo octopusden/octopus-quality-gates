@@ -1,3 +1,5 @@
+import org.gradle.api.attributes.plugin.GradlePluginApiVersion
+
 plugins {
     `java-gradle-plugin`
     `maven-publish`
@@ -75,6 +77,8 @@ kover {
 }
 
 val detektVersion: String by project
+val detekt2Version: String by project
+val kotlinGradlePlugin2Version: String by project
 val ktlintGradleVersion: String by project
 val koverVersion: String by project
 val spotbugsGradleVersion: String by project
@@ -93,6 +97,19 @@ repositories {
 // but TestKit needs them on the plugin classpath to load our classes that reference them.
 val externalPlugins by configurations.creating
 
+// detekt 2 needs Kotlin Gradle plugin 2.x, which cannot share a classloader with the KGP 1.9.25 on
+// the shared TestKit classpath. The detekt 2 functional tests swap the 1.9.25 jars for these.
+val kgp2Plugin by configurations.creating {
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+        attribute(
+            GradlePluginApiVersion.GRADLE_PLUGIN_API_VERSION_ATTRIBUTE,
+            objects.named("8.9"),
+        )
+    }
+}
+
 dependencies {
     compileOnly("io.gitlab.arturbosch.detekt:detekt-gradle-plugin:$detektVersion")
     compileOnly("org.jlleitschuh.gradle:ktlint-gradle:$ktlintGradleVersion")
@@ -107,9 +124,12 @@ dependencies {
 
     // Same deps for TestKit classpath (not published, only for tests)
     externalPlugins("io.gitlab.arturbosch.detekt:detekt-gradle-plugin:$detektVersion")
+    externalPlugins("dev.detekt:detekt-gradle-plugin:$detekt2Version")
     externalPlugins("org.jlleitschuh.gradle:ktlint-gradle:$ktlintGradleVersion")
     externalPlugins("org.jetbrains.kotlinx:kover-gradle-plugin:$koverVersion")
     externalPlugins("org.jetbrains.kotlin:kotlin-gradle-plugin:${property("kotlinGradlePluginVersion")}")
+
+    kgp2Plugin("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinGradlePlugin2Version")
 
     testImplementation(gradleTestKit())
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
@@ -125,6 +145,7 @@ tasks.named("pluginUnderTestMetadata") {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    doFirst { systemProperty("kgp2.classpath", kgp2Plugin.asPath) }
 }
 
 java {
