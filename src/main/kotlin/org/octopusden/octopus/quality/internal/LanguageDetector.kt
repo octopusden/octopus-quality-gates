@@ -12,18 +12,31 @@ internal data class DetectedLanguages(
 }
 
 internal object LanguageDetector {
-    private val SOURCE_DIRS = listOf("src/main", "src/test", "src/integrationTest", "src/testFixtures")
-
+    /**
+     * A language is present when a file with its extension exists under `src/` (any source set,
+     * any directory name, so Kotlin under `src/main/java` is Kotlin). Stops at the first file of
+     * each language; `.kts` build scripts are not `.kt`.
+     */
     fun detect(project: Project): DetectedLanguages {
         var hasKotlin = false
         var hasJava = false
         var hasGroovy = false
+        val buildDir =
+            project.layout.buildDirectory.asFile
+                .get()
 
-        for (base in SOURCE_DIRS) {
-            if (File(project.projectDir, "$base/kotlin").exists()) hasKotlin = true
-            if (File(project.projectDir, "$base/java").exists()) hasJava = true
-            if (File(project.projectDir, "$base/groovy").exists()) hasGroovy = true
-        }
+        File(project.projectDir, "src")
+            .walkTopDown()
+            .onEnter { it != buildDir }
+            .filter { it.isFile }
+            .forEach {
+                when (it.extension) {
+                    "kt" -> hasKotlin = true
+                    "java" -> hasJava = true
+                    "groovy" -> hasGroovy = true
+                }
+                if (hasKotlin && hasJava && hasGroovy) return DetectedLanguages(true, true, true)
+            }
 
         return DetectedLanguages(hasKotlin, hasJava, hasGroovy)
     }
