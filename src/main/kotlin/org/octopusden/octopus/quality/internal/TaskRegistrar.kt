@@ -31,6 +31,7 @@ internal object TaskRegistrar {
         val coverageProjects = coverageTargetProjects(rootProject, extension)
         val excludedTasks = extension.excludedTasks.get()
 
+        warnOnExcludeProjectsMismatch(rootProject, extension.coverageExcludedProjects.get())
         registerQualityStatic(rootProject, allProjects, excludedTasks)
         HollowGateGuard.register(rootProject, allProjects, excludedTasks)
         registerQualityCoverage(rootProject, coverageProjects, extension, excludedTasks)
@@ -297,7 +298,7 @@ internal object TaskRegistrar {
             else -> {
                 val withRoot =
                     if (LanguageDetector.hasAnySource(rootProject)) allSubs + rootProject else allSubs
-                withRoot.filter { it.name !in excluded }
+                withRoot.filterNot { isProjectExcluded(it.path, it.name, excluded) }
             }
         }
     }

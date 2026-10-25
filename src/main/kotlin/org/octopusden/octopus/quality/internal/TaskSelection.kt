@@ -112,3 +112,44 @@ internal fun warnMergedCoverageNotChecked(
             "test tasks are excluded (${skipped.joinToString { qualifiedTaskPath(it.path, "test") }}).",
     )
 }
+
+/**
+ * True when the project at [projectPath] named [projectName] is excluded by an `excludeProjects`
+ * entry. An entry starting with ":" is a project path and matches exactly that project; any other
+ * entry is a bare name matched against the project name (deprecated, see
+ * [warnOnExcludeProjectsMismatch]).
+ */
+internal fun isProjectExcluded(
+    projectPath: String,
+    projectName: String,
+    excludedProjects: Set<String>,
+): Boolean = excludedProjects.any { if (it.startsWith(":")) it == projectPath else it == projectName }
+
+/**
+ * Messages for `excludeProjects` entries that do not do what they probably meant, given the build's
+ * project [paths] and their names: a bare name (deprecated, names every project it matched) and an
+ * entry matching no project at all.
+ */
+internal fun excludeProjectsWarnings(
+    excludedProjects: Set<String>,
+    projects: Map<String, String>,
+): List<String> =
+    excludedProjects.mapNotNull { entry ->
+        val matched = projects.filter { (path, name) -> isProjectExcluded(path, name, setOf(entry)) }.keys
+        when {
+            matched.isEmpty() -> "octopusQuality: excludeProjects(\"$entry\") matched no project."
+            !entry.startsWith(":") ->
+                "octopusQuality: excludeProjects(\"$entry\") matches by project name, which is deprecated; " +
+                    "it matched ${matched.joinToString()}. Use the project path instead, " +
+                    "e.g. excludeProjects(\"${matched.first()}\")."
+            else -> null
+        }
+    }
+
+internal fun warnOnExcludeProjectsMismatch(
+    rootProject: Project,
+    excludedProjects: Set<String>,
+) {
+    excludeProjectsWarnings(excludedProjects, rootProject.allprojects.associate { it.path to it.name })
+        .forEach { rootProject.logger.warn(it) }
+}

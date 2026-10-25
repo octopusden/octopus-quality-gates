@@ -114,7 +114,7 @@ internal object SubprojectConfigurer {
 
         // Coverage: skip for excluded projects
         val excludedFromCoverage = extension.coverageExcludedProjects.get()
-        if (project.name !in excludedFromCoverage) {
+        if (!isProjectExcluded(project.path, project.name, excludedFromCoverage)) {
             val overallLanguages = LanguageDetector.detectAll(rootProject, excludedFromCoverage)
             val coverageTool = resolveCoverageTool(extension.coverage.tool.get(), overallLanguages)
             when (coverageTool) {
