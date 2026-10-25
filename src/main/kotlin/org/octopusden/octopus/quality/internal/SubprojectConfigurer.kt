@@ -11,6 +11,9 @@ import java.io.File
  */
 @Suppress("TooManyFunctions") // One configurer per supported tool — splitting would just relocate the count.
 internal object SubprojectConfigurer {
+    /** Extra-property key set on a project once detekt (1.x or 2.x) was configured by this plugin. */
+    const val DETEKT_CONFIGURED_KEY = "octopusQuality.detektConfigured"
+
     /**
      * Minimum JDK an ErrorProne engine release can RUN on, derived from its bytecode target — an
      * objective property of the jar, unlike the upper bound, which is a per-JDK empirical result and
@@ -49,7 +52,14 @@ internal object SubprojectConfigurer {
             configureKtlint(project, configDir, extension)
         }
         project.plugins.withId("io.gitlab.arturbosch.detekt") {
+            markDetektConfigured(project)
             configureDetektEarly(project, configDir)
+        }
+        // detekt 2 (`dev.detekt`) has lazy Properties throughout, so everything — including
+        // `ignoreFailures` — is wired here and tracks the consumer's later `octopusQuality { }` block.
+        project.plugins.withId("dev.detekt") {
+            markDetektConfigured(project)
+            configureDetekt2(project, configDir, extension)
         }
     }
 
@@ -314,6 +324,41 @@ internal object SubprojectConfigurer {
                 it.html.required.set(true)
                 it.sarif.required.set(true)
                 it.txt.required.set(false)
+            }
+        }
+    }
+
+    /**
+     * Records that this plugin configured detekt for [project], read by [HollowGateGuard]: a task
+     * that merely carries the name `detekt` is not proof that the bundled config is applied.
+     */
+    private fun markDetektConfigured(project: Project) {
+        project.extensions.extraProperties.set(DETEKT_CONFIGURED_KEY, true)
+    }
+
+    /** detekt 2 counterpart of [configureDetektEarly] + [configureDetektFailureFlag], all lazy. */
+    private fun configureDetekt2(
+        project: Project,
+        configDir: File,
+        extension: OctopusQualityExtension,
+    ) {
+        project.extensions.configure(dev.detekt.gradle.extensions.DetektExtension::class.java) { ext ->
+            ext.buildUponDefaultConfig.set(true)
+            ext.allRules.set(false)
+            ext.config.setFrom(File(configDir, "detekt-2.yml"))
+            val baselineFile = File(project.projectDir, "detekt-baseline.xml")
+            if (baselineFile.exists()) {
+                ext.baseline.set(baselineFile)
+            }
+            ext.ignoreFailures.set(extension.kotlin.failOnViolation.map { !it })
+        }
+        // detekt 2 has no `xml` report: its checkstyle-format XML is the equivalent.
+        project.tasks.withType(dev.detekt.gradle.Detekt::class.java).configureEach { task ->
+            task.reports {
+                it.checkstyle.required.set(true)
+                it.html.required.set(true)
+                it.sarif.required.set(true)
+                it.markdown.required.set(false)
             }
         }
     }

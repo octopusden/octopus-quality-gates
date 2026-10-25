@@ -112,6 +112,8 @@ val kgp2Plugin by configurations.creating {
 
 dependencies {
     compileOnly("io.gitlab.arturbosch.detekt:detekt-gradle-plugin:$detektVersion")
+    // detekt 2 lives in a different package (dev.detekt.gradle), so both compile side by side.
+    compileOnly("dev.detekt:detekt-gradle-plugin:$detekt2Version")
     compileOnly("org.jlleitschuh.gradle:ktlint-gradle:$ktlintGradleVersion")
     compileOnly("org.jetbrains.kotlinx:kover-gradle-plugin:$koverVersion")
     compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:${property("kotlinGradlePluginVersion")}")

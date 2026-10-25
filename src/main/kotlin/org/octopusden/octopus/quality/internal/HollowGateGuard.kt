@@ -35,11 +35,18 @@ internal object HollowGateGuard {
             targets.mapNotNull { project ->
                 if (!LanguageDetector.detect(project).hasKotlin) return@mapNotNull null
                 val missing = REQUIRED_KOTLIN_TASKS.filter { project.tasks.findByName(it) == null }
-                if (missing.isEmpty()) {
-                    null
-                } else {
-                    "${project.path}: Kotlin sources present but ${missing.joinToString(", ")} " +
-                        "task(s) missing — apply the plugin(s) in this module's build script."
+                val extra = project.extensions.extraProperties
+                val detektUnconfigured =
+                    "detekt" !in missing && !(extra.has(SubprojectConfigurer.DETEKT_CONFIGURED_KEY))
+                when {
+                    missing.isNotEmpty() ->
+                        "${project.path}: Kotlin sources present but ${missing.joinToString(", ")} " +
+                            "task(s) missing — apply the plugin(s) in this module's build script."
+                    detektUnconfigured ->
+                        "${project.path}: detekt not configured by the quality plugin — a `detekt` task " +
+                            "exists but neither io.gitlab.arturbosch.detekt nor dev.detekt was applied, so " +
+                            "the bundled config, baseline and failOnViolation are not in effect."
+                    else -> null
                 }
             }
 
