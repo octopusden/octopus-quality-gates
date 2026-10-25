@@ -3205,4 +3205,69 @@ class OctopusQualityPluginFunctionalTest {
         assertTrue(":lib:test" in tasks && ":app:test" in tasks, "got: $tasks")
         assertFalse(result.output.contains("merged coverage"), "no warning without an excluded test; got: ${result.output}")
     }
+
+    // ===============================================================
+    // excludeProjects matches by project path; a bare name still matches project.name but is
+    // deprecated (#10). Fixture: two projects that share the name `core`, `:a:core` and `:b:core`.
+    // ===============================================================
+
+    private fun sameNameCoresBuild(quality: String): BuildResult {
+        settingsFile(kotlinSettings("test-exclude-projects", """include(":a:core", ":b:core")"""))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25" apply false
+                id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+                id("org.jetbrains.kotlinx.kover") version "0.9.4" apply false
+                id("org.octopusden.octopus-quality")
+            }
+            subprojects {
+                apply(plugin = "org.jetbrains.kotlin.jvm")
+                apply(plugin = "io.gitlab.arturbosch.detekt")
+                apply(plugin = "org.jlleitschuh.gradle.ktlint")
+                apply(plugin = "org.jetbrains.kotlinx.kover")
+                repositories { mavenCentral() }
+            }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                $quality
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("a/core/src/main/kotlin/com/example/A.kt", "package com.example\nfun a() = 1\n")
+        writeKotlinFile("b/core/src/main/kotlin/com/example/B.kt", "package com.example\nfun b() = 2\n")
+        return runner("qualityCoverage", "--dry-run").build()
+    }
+
+    @Test
+    fun `excludeProjects by path excludes only that project`() {
+        val result = sameNameCoresBuild("""excludeProjects(":a:core")""")
+        val tasks = scheduledTasks(result)
+
+        assertFalse(":a:core:koverVerify" in tasks, "the excluded path must lose its coverage gate; got: $tasks")
+        assertTrue(":b:core:koverVerify" in tasks, "the same-named sibling must keep its gate; got: $tasks")
+        assertFalse(result.output.contains("deprecated"), "a path entry is not deprecated; got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects by bare name still excludes every project with that name and warns`() {
+        val result = sameNameCoresBuild("""excludeProjects("core")""")
+        val tasks = scheduledTasks(result)
+
+        assertFalse(":a:core:koverVerify" in tasks, "got: $tasks")
+        assertFalse(":b:core:koverVerify" in tasks, "got: $tasks")
+        assertTrue(result.output.contains("deprecated"), "a bare name must warn; got: ${result.output}")
+        assertTrue(
+            result.output.contains(":a:core") && result.output.contains(":b:core"),
+            "the warning must name every project the entry matched; got: ${result.output}",
+        )
+    }
+
+    @Test
+    fun `excludeProjects entry that matches no project warns`() {
+        val result = sameNameCoresBuild("""excludeProjects(":nope")""")
+
+        assertTrue(result.output.contains("matched no project"), "got: ${result.output}")
+    }
 }
