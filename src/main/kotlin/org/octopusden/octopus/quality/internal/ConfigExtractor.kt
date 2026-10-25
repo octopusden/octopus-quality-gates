@@ -39,9 +39,10 @@ internal object ConfigExtractor {
             project.gradle.startParameter.projectCacheDir
                 ?: File(project.rootDir, ".gradle")
         val configDir = File(projectCacheDir, "octopus-quality/config")
-        if (!configDir.isDirectory && !configDir.mkdirs()) {
-            error("Failed to create config directory: ${configDir.absolutePath}")
-        }
+        // Create first, then check: probing for the directory before creating it would record "absent"
+        // as a configuration cache input, so the next build could never reuse the cache entry.
+        configDir.mkdirs()
+        check(configDir.isDirectory) { "Failed to create config directory: ${configDir.absolutePath}" }
 
         for (fileName in CONFIG_FILES) {
             val target = File(configDir, fileName)

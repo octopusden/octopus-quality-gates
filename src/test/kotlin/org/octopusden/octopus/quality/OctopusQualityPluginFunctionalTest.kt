@@ -852,6 +852,11 @@ class OctopusQualityPluginFunctionalTest {
 
         val result = runner("check", "--configuration-cache").build()
         assertEquals(TaskOutcome.SUCCESS, result.task(":validatePublications")?.outcome)
+
+        // The second run executes from the stored entry, which is what the cache-safe action is for.
+        val reused = runner("check", "--configuration-cache", "--rerun-tasks").build()
+        assertTrue(reused.output.contains("Reusing configuration cache"), reused.output)
+        assertEquals(TaskOutcome.SUCCESS, reused.task(":validatePublications")?.outcome)
     }
 
     @Test
