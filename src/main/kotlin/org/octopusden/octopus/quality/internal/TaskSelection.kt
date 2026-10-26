@@ -57,6 +57,18 @@ internal fun isCoverageSkippedByExcludedTest(
     excludedTasks: Set<String>,
 ): Boolean = isTaskExcluded(projectPath, "test", excludedTasks)
 
+/**
+ * The [covered] targets whose own coverage tasks `qualityCoverage` wires. Under Kover, a root whose
+ * report is unwired ([rootKoverUnwired]) is left out here too: its own report may merge other
+ * modules, so wiring it per module would bring their excluded `test` back.
+ */
+internal fun <T> perModuleCoverage(
+    covered: List<T>,
+    root: T,
+    rootKoverUnwired: Boolean,
+    tool: CoverageExtension.Tool?,
+): List<T> = if (rootKoverUnwired && tool == CoverageExtension.Tool.KOVER) covered - root else covered
+
 private val COVERAGE_TASK_NAMES =
     setOf(
         "jacocoTestReport",

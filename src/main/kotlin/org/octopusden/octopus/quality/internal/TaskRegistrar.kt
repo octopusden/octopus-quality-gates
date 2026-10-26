@@ -136,7 +136,7 @@ internal object TaskRegistrar {
 
             if (!coverageEnabled) return@register
 
-            for (project in covered) {
+            for (project in perModuleCoverage(covered, rootProject, rootKoverUnwired, coverageTool)) {
                 when (coverageTool) {
                     CoverageExtension.Tool.JACOCO -> {
                         dependOnIfExists(task, project, "jacocoTestReport", excludedTasks)

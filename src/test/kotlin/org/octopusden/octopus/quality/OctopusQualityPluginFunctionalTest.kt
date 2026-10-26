@@ -3171,10 +3171,24 @@ class OctopusQualityPluginFunctionalTest {
         assertFalse(":koverVerify" in tasks, "merged root verify depends on every module's test; got: $tasks")
         assertTrue(":app:test" in tasks, "remaining modules keep their suite; got: $tasks")
         assertTrue(":app:koverVerify" in tasks, "remaining modules keep per-module coverage; got: $tasks")
-        assertTrue(
-            result.output.contains("merged coverage") && result.output.contains(":lib:test"),
-            "one warning must say the merged coverage is not checked and name the excluded task; got: ${result.output}",
-        )
+        val warnings = result.output.lines().filter { "merged coverage report and floor are NOT checked" in it }
+        assertEquals(1, warnings.size, "exactly one merged-coverage warning; got: ${result.output}")
+        assertTrue(":lib:test" in warnings.single(), "the warning names the excluded task; got: $warnings")
+    }
+
+    @Test
+    fun `kover - a root with its own sources does not pull an excluded module test back through its report`() {
+        settingsFile(kotlinSettings("test-kover-root-sources-exclude-test", """include("lib", "app")"""))
+        buildFile(koverAggregatorBuild("""excludeTasks(":lib:test")"""))
+        writeLibAndApp()
+        // The root now carries sources, so it is a coverage target in the per-module loop.
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 0\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":lib:test" in tasks, "excluded suite must not come back via the root's report; got: $tasks")
+        assertFalse(":koverXmlReport" in tasks, "the root's report merges every module's test; got: $tasks")
+        assertTrue(":app:koverVerify" in tasks, "remaining modules keep per-module coverage; got: $tasks")
     }
 
     @Test
