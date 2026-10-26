@@ -1,5 +1,6 @@
 package org.octopusden.octopus.quality.internal
 
+import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.octopusden.octopus.quality.CoverageExtension
 import org.octopusden.octopus.quality.OctopusQualityExtension
@@ -13,6 +14,9 @@ import java.io.File
 internal object SubprojectConfigurer {
     /** Extra-property key set on a project once detekt (1.x or 2.x) was configured by this plugin. */
     const val DETEKT_CONFIGURED_KEY = "octopusQuality.detektConfigured"
+
+    /** dev.detekt versions this plugin is compiled and tested against. */
+    private const val SUPPORTED_DETEKT2 = "2.0.0-alpha.5, 2.0.0-alpha.6"
 
     /**
      * Minimum JDK an ErrorProne engine release can RUN on, derived from its bytecode target — an
@@ -59,7 +63,17 @@ internal object SubprojectConfigurer {
         // `ignoreFailures` — is wired here and tracks the consumer's later `octopusQuality { }` block.
         project.plugins.withId("dev.detekt") {
             markDetektConfigured(project)
-            configureDetekt2(project, configDir, extension)
+            try {
+                configureDetekt2(project, configDir, extension)
+            } catch (e: LinkageError) {
+                // NoSuchMethodError / NoSuchFieldError / NoClassDefFoundError / AbstractMethodError: the
+                // dev.detekt API this plugin was compiled against differs from the one on the classpath.
+                throw GradleException(
+                    "The dev.detekt version in use is not supported by this plugin version " +
+                        "(${e.javaClass.simpleName}: ${e.message}). Supported: $SUPPORTED_DETEKT2.",
+                    e,
+                )
+            }
         }
     }
 

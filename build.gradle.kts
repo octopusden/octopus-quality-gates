@@ -147,7 +147,9 @@ tasks.named("pluginUnderTestMetadata") {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    doFirst { systemProperty("kgp2.classpath", kgp2Plugin.asPath) }
+    // Input-tracked and configuration-cache safe (resolved at execution time, not captured eagerly).
+    inputs.files(kgp2Plugin)
+    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp2.classpath=${kgp2Plugin.asPath}") })
 }
 
 java {
