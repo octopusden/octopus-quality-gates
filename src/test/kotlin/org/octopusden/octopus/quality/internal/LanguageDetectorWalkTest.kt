@@ -29,10 +29,17 @@ class LanguageDetectorWalkTest {
     }
 
     @Test
-    fun `groovy root stops at the first groovy file`() {
-        val r = root("groovy", "A.groovy", "a/b/Deep.groovy")
+    fun `groovy root reports java compiled jointly from it`() {
+        val r = root("groovy", "A.groovy", "a/b/B.java")
         val scan = LanguageDetector.walkRoot(r, none)
-        assertEquals(DetectedLanguages(hasKotlin = false, hasJava = false, hasGroovy = true), scan.languages)
+        assertEquals(DetectedLanguages(hasKotlin = false, hasJava = true, hasGroovy = true), scan.languages)
+    }
+
+    @Test
+    fun `groovy root stops once it found groovy and java`() {
+        val r = root("groovy", "A.groovy", "B.java", "a/b/Deep.groovy")
+        val scan = LanguageDetector.walkRoot(r, none)
+        assertEquals(DetectedLanguages(hasKotlin = false, hasJava = true, hasGroovy = true), scan.languages)
         assertEquals(1, scan.dirsListed)
     }
 

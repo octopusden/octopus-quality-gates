@@ -69,7 +69,8 @@ internal object LanguageDetector {
         val rootExtensions =
             when (root.name) {
                 "kotlin" -> setOf("kt")
-                "groovy" -> setOf("groovy")
+                // Groovy joint compilation compiles `.java` placed under the groovy root.
+                "groovy" -> setOf("groovy", "java")
                 else -> setOf("java", "kt")
             }
         val wanted = (rootExtensions - have).toMutableSet()
