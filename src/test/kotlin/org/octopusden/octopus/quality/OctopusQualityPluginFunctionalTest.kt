@@ -844,6 +844,133 @@ class OctopusQualityPluginFunctionalTest {
         assertTrue(output.contains("jar:extra"), output)
     }
 
+    @Test
+    fun `check runs with the configuration cache when the policy is not enforced`() {
+        settingsFile(kotlinSettings("test-cc-default"))
+        buildFile(publishingProject("octopusQuality { coverage { enabled.set(false) } }"))
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        val result = runner("check", "--configuration-cache").build()
+        assertEquals(TaskOutcome.SUCCESS, result.task(":validatePublications")?.outcome)
+
+        // The second run executes from the stored entry, which is what the cache-safe action is for.
+        val reused = runner("check", "--configuration-cache", "--rerun-tasks").build()
+        assertTrue(reused.output.contains("Reusing configuration cache"), reused.output)
+        assertEquals(TaskOutcome.SUCCESS, reused.task(":validatePublications")?.outcome)
+    }
+
+    @Test
+    fun `check runs with the configuration cache when the declared set matches`() {
+        settingsFile(kotlinSettings("test-cc-enforced"))
+        buildFile(
+            publishingProject(
+                """
+                octopusQuality {
+                    coverage { enabled.set(false) }
+                    publication {
+                        enforceCentralPublications.set(true)
+                        centralPublications.set(
+                            setOf(
+                                ":|mavenJava|org.example:test-cc-enforced|[jar, jar:javadoc, jar:sources]",
+                            ),
+                        )
+                    }
+                }
+                """.trimIndent(),
+            ),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        val result = runner("check", "--configuration-cache").build()
+        assertEquals(TaskOutcome.SUCCESS, result.task(":validatePublications")?.outcome)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyCentralPublicationPolicy")?.outcome)
+
+        val reused = runner("check", "--configuration-cache", "--rerun-tasks").build()
+        assertTrue(reused.output.contains("Reusing configuration cache"), reused.output)
+        assertEquals(TaskOutcome.SUCCESS, reused.task(":verifyCentralPublicationPolicy")?.outcome)
+    }
+
+    @Test
+    fun `policy drift fails on both the storing and the reusing configuration cache run`() {
+        settingsFile(kotlinSettings("test-cc-drift"))
+        buildFile(
+            publishingProject(
+                """
+                octopusQuality {
+                    coverage { enabled.set(false) }
+                    publication {
+                        enforceCentralPublications.set(true)
+                        centralPublications.set(setOf(":|mavenJava|org.example:other|[jar]"))
+                    }
+                }
+                """.trimIndent(),
+            ),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        val stored = runner("verifyCentralPublicationPolicy", "--configuration-cache").buildAndFail()
+        assertTrue(stored.output.replace(ansiEscape, "").contains("publication set drifted"), stored.output)
+
+        val reused =
+            runner("verifyCentralPublicationPolicy", "--configuration-cache", "--rerun-tasks").buildAndFail()
+        assertTrue(reused.output.contains("Reusing configuration cache"), reused.output)
+        assertTrue(reused.output.replace(ansiEscape, "").contains("publication set drifted"), reused.output)
+    }
+
+    @Test
+    fun `an opted-out repository works with the configuration cache`() {
+        settingsFile(kotlinSettings("test-cc-optout"))
+        buildFile(
+            publishingProject(
+                """
+                octopusQuality {
+                    coverage { enabled.set(false) }
+                    publication {
+                        validateForMavenCentral.set(false)
+                        enforceCentralPublications.set(false)
+                    }
+                }
+                """.trimIndent(),
+            ) +
+                // Both checks inspect artifact extensions; this one throws when resolved, so the build
+                // only succeeds if neither check snapshots publications while it is switched off.
+                """
+
+                publishing {
+                    publications.withType<MavenPublication>().configureEach {
+                        artifact(provider<File> { error("artifact resolved while the checks are off") }) {
+                            classifier = "sources"
+                        }
+                    }
+                }
+                """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        val stored = runner("check", "--configuration-cache").build()
+        assertEquals(TaskOutcome.SKIPPED, stored.task(":validatePublications")?.outcome)
+        val reused = runner("check", "--configuration-cache", "--rerun-tasks").build()
+        assertTrue(reused.output.contains("Reusing configuration cache"), reused.output)
+    }
+
+    @Test
+    fun `deleting an extracted config file invalidates the configuration cache`() {
+        settingsFile(kotlinSettings("test-cc-config-file"))
+        buildFile(publishingProject("octopusQuality { coverage { enabled.set(false) } }"))
+        writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
+
+        runner("help", "--configuration-cache").build()
+        val unchanged = runner("help", "--configuration-cache").build()
+        assertTrue(unchanged.output.contains("Reusing configuration cache"), unchanged.output)
+        val detektConfig = File(projectDir, ".gradle/octopus-quality/config/detekt.yml")
+        assertTrue(detektConfig.isFile, "config must be extracted")
+        detektConfig.delete()
+
+        val result = runner("help", "--configuration-cache").build()
+        assertFalse(result.output.contains("Reusing configuration cache"), result.output)
+        assertTrue(detektConfig.isFile, "config must be re-extracted")
+    }
+
     // ---------------------------------------------------------------
     // 6. Publication validator: valid jar publication passes
     // ---------------------------------------------------------------
