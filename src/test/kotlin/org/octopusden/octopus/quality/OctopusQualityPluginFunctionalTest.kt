@@ -1853,6 +1853,83 @@ class OctopusQualityPluginFunctionalTest {
         assertFalse(result.output.contains(":pmdMain"), "pmd must not be wired; got: ${result.output}")
     }
 
+    // Only language roots (src/<set>/{kotlin,java,groovy}) count: resources are not sources.
+    @Test
+    fun `kotlin-only repo with groovy resource - no codenarc and stays kover`() {
+        settingsFile(kotlinSettings("test-groovy-resource"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("io.gitlab.arturbosch.detekt") version "1.23.5"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Hello.kt", "package com.example\nfun hello() = 1\n")
+        writeKotlinFile("src/main/resources/logback.groovy", "root(INFO)\n")
+
+        val result = runner("qualityCheck", "--dry-run").build()
+        assertTrue(result.output.contains(":koverXmlReport"), "Coverage must stay Kover; got: ${result.output}")
+        assertFalse(result.output.contains(":jacocoTestReport"), "JaCoCo must not be selected; got: ${result.output}")
+        assertFalse(result.output.contains(":codenarcMain"), "codenarc must not be wired; got: ${result.output}")
+    }
+
+    @Test
+    fun `java module with kt test resource - not Kotlin, no hollow-gate failure`() {
+        settingsFile(kotlinSettings("test-kt-resource-in-java"))
+        buildFile(
+            """
+            plugins {
+                `java-library`
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                java { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/java/com/example/Hello.java", "package com.example;\npublic class Hello {}\n")
+        writeKotlinFile("src/test/resources/fixtures/Sample.kt", "package fixtures\nfun sample() = 1\n")
+
+        val result = runner("qualityStatic").run().output
+        assertFalse(result.contains("Hollow quality gate"), "Resource .kt must not count; got: $result")
+    }
+
+    @Test
+    fun `kotlin-only repo with generated java outside language roots - no checkstyle or pmd`() {
+        settingsFile(kotlinSettings("test-generated-java"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("io.gitlab.arturbosch.detekt") version "1.23.5"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Hello.kt", "package com.example\nfun hello() = 1\n")
+        writeKotlinFile("src/main/generated/Gen.java", "public class Gen {}\n")
+
+        val result = runner("qualityCheck", "--dry-run").build()
+        assertFalse(result.output.contains(":checkstyleMain"), "checkstyle must not be wired; got: ${result.output}")
+        assertFalse(result.output.contains(":pmdMain"), "pmd must not be wired; got: ${result.output}")
+    }
+
     // ---------------------------------------------------------------
     // Kover (b): verifyInCheck=true — koverVerify wired onto check.
     // ---------------------------------------------------------------
