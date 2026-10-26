@@ -1456,14 +1456,19 @@ class OctopusQualityPluginFunctionalTest {
                     .getResourceAsStream("plugin-under-test-metadata.properties")!!
                     .use { load(it) }
             }
-        val kotlinJar = Regex("/org[./]jetbrains[./]kotlin/")
+        val kgp2 =
+            checkNotNull(System.getProperty("kgp2.classpath")) {
+                "System property kgp2.classpath is missing: it is set by the Gradle `test` task in build.gradle.kts"
+            }
+        // Compare file names, not path text, so the filter is separator-independent.
+        val kotlinJar = Regex("^kotlin-.*\\.jar$")
         val classpath =
             metadata
                 .getProperty("implementation-classpath")
                 .split(File.pathSeparator)
-                .filterNot { kotlinJar.containsMatchIn(it) }
-                .plus(System.getProperty("kgp2.classpath").split(File.pathSeparator))
                 .map(::File)
+                .filterNot { kotlinJar.matches(it.name) }
+                .plus(kgp2.split(File.pathSeparator).map(::File))
         return runner(*args).withPluginClasspath(classpath)
     }
 
@@ -1552,6 +1557,79 @@ class OctopusQualityPluginFunctionalTest {
 
         assertEquals(TaskOutcome.FAILED, result.task(":verifyStaticAnalysisApplied")?.outcome)
         assertTrue(result.output.contains("Hollow quality gate"), "got: ${result.output}")
+        assertTrue(result.output.contains("detekt not configured"), "got: ${result.output}")
+        assertTrue(result.output.contains("io.gitlab.arturbosch.detekt"), "got: ${result.output}")
+        assertTrue(result.output.contains("dev.detekt"), "got: ${result.output}")
+        assertTrue(result.output.contains("JDK 24"), "got: ${result.output}")
+    }
+
+    private fun hollowDetektProject(excluded: String) {
+        settingsFile(kotlinSettings("test-hollow-detekt-excluded"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            tasks.register("detekt")
+            octopusQuality {
+                excludeTasks($excluded)
+                kotlin { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile(
+            "src/main/kotlin/com/example/Hello.kt",
+            "package com.example\nfun hello() = \"Hello\"\n",
+        )
+    }
+
+    @Test
+    fun `hollow gate - detekt excluded by bare name is not reported as unconfigured`() {
+        hollowDetektProject("\"detekt\"")
+
+        val result = runner("verifyStaticAnalysisApplied").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyStaticAnalysisApplied")?.outcome)
+    }
+
+    @Test
+    fun `hollow gate - detekt excluded by qualified path is not reported as unconfigured`() {
+        hollowDetektProject("\":detekt\"")
+
+        val result = runner("verifyStaticAnalysisApplied").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyStaticAnalysisApplied")?.outcome)
+    }
+
+    @Test
+    fun `hollow gate - reports missing tasks and unconfigured detekt in one message`() {
+        settingsFile(kotlinSettings("test-hollow-both"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            tasks.register("detekt")
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile(
+            "src/main/kotlin/com/example/Hello.kt",
+            "package com.example\nfun hello() = \"Hello\"\n",
+        )
+
+        val result = runner("qualityStatic").buildAndFail()
+
+        assertTrue(result.output.contains("ktlintCheck task(s) missing"), "got: ${result.output}")
         assertTrue(result.output.contains("detekt not configured"), "got: ${result.output}")
     }
 
