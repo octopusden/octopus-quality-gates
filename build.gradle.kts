@@ -147,9 +147,11 @@ tasks.named("pluginUnderTestMetadata") {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    // Input-tracked and configuration-cache safe (resolved at execution time, not captured eagerly).
-    inputs.files(kgp2Plugin)
-    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp2.classpath=${kgp2Plugin.asPath}") })
+    // A local FileCollection, not the script's delegated property: the provider then captures only the
+    // files (serializable for the configuration cache), and they are a tracked input of the test task.
+    val kgp2Classpath: FileCollection = kgp2Plugin
+    inputs.files(kgp2Classpath)
+    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp2.classpath=${kgp2Classpath.asPath}") })
 }
 
 java {
