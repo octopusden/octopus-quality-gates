@@ -1,6 +1,7 @@
 package org.octopusden.octopus.quality.internal
 
 import org.gradle.api.Project
+import org.octopusden.octopus.quality.CoverageExtension
 
 /**
  * Fully qualified path of [taskName] in the project at [projectPath].
@@ -81,4 +82,21 @@ internal fun warnCoverageNotEnforced(
                 "NOT enforced by qualityCoverage. To make that explicit, use excludeProjects(\"${project.path}\").",
         )
     }
+}
+
+/**
+ * Warns once that the root's merged Kover report/floor is not checked by `qualityCoverage` while
+ * the `test` tasks of [skipped] are excluded. No-op unless coverage runs with Kover ([tool], null
+ * when disabled) in a multi-module build, or when nothing is skipped.
+ */
+internal fun warnMergedCoverageNotChecked(
+    root: Project,
+    skipped: List<Project>,
+    tool: CoverageExtension.Tool?,
+) {
+    if (tool != CoverageExtension.Tool.KOVER || skipped.isEmpty() || root.subprojects.isEmpty()) return
+    root.logger.warn(
+        "octopusQuality: the merged coverage report and floor are NOT checked by qualityCoverage while " +
+            "test tasks are excluded (${skipped.joinToString { qualifiedTaskPath(it.path, "test") }}).",
+    )
 }

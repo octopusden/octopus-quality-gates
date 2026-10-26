@@ -116,7 +116,10 @@ internal object TaskRegistrar {
         // One rule: a target whose `test` is excluded gets no coverage wiring, root included.
         val (skipped, covered) = targets.partition { isCoverageSkippedByExcludedTest(it.path, excludedTasks) }
         warnCoverageNotEnforced(skipped, coverageEnabled)
-        val rootCoverageSkipped = rootProject in skipped
+        // A merged/own Kover report of the root depends on every module's `test`, so it is not wired
+        // while any target's `test` is excluded.
+        val rootKoverUnwired = skipped.isNotEmpty()
+        warnMergedCoverageNotChecked(rootProject, skipped, coverageTool)
 
         rootProject.tasks.register("qualityCoverage") { task ->
             task.group = "verification"
@@ -152,9 +155,9 @@ internal object TaskRegistrar {
                 task.dependsOn("jacocoOverallCoverageReport")
                 task.dependsOn("jacocoOverallCoverageVerification")
             }
-            // A source-carrying root skipped above must not get its own report/verify back here;
-            // a pure aggregator root (not a target) keeps its merged report wired.
-            if (coverageTool == CoverageExtension.Tool.KOVER && !rootCoverageSkipped) {
+            // Skipped targets (root included) must not get a report/verify back here, and neither may
+            // the merge of every module's tests; see rootKoverUnwired.
+            if (coverageTool == CoverageExtension.Tool.KOVER && !rootKoverUnwired) {
                 // Either merged-* (multi-module) or single-module — exactly one set is
                 // expected to exist. Use the silent helper here so the absent half
                 // doesn't fire a spurious warning. If BOTH are missing, the per-project
