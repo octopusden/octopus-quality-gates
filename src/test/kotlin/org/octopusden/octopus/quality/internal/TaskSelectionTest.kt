@@ -93,4 +93,18 @@ class TaskSelectionTest {
         assertFalse(isCoverageSuite(":", "test", setOf(":test"), emptySet()))
         assertTrue(isCoverageSuite(":", "test", setOf(":other"), emptySet()))
     }
+
+    @Test
+    fun `coverage is skipped for a module whose test is excluded by path or bare name`() {
+        assertTrue(isCoverageSkippedByExcludedTest(":lib", setOf(":lib:test")))
+        assertTrue(isCoverageSkippedByExcludedTest(":lib", setOf("test")))
+        assertTrue(isCoverageSkippedByExcludedTest(":", setOf(":test")))
+    }
+
+    @Test
+    fun `coverage is not skipped for other modules or other excluded tasks`() {
+        assertFalse(isCoverageSkippedByExcludedTest(":app", setOf(":lib:test")))
+        assertFalse(isCoverageSkippedByExcludedTest(":lib", setOf(":lib:integrationTest")))
+        assertFalse(isCoverageSkippedByExcludedTest(":lib", emptySet()))
+    }
 }

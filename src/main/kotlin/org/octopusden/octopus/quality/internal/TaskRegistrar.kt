@@ -113,6 +113,11 @@ internal object TaskRegistrar {
             registerJacocoOverallTasks(rootProject, targets, extension)
         }
 
+        // One rule: a target whose `test` is excluded gets no coverage wiring, root included.
+        val (skipped, covered) = targets.partition { isCoverageSkippedByExcludedTest(it.path, excludedTasks) }
+        warnCoverageNotEnforced(skipped, coverageEnabled)
+        val rootCoverageSkipped = rootProject in skipped
+
         rootProject.tasks.register("qualityCoverage") { task ->
             task.group = "verification"
             task.description =
@@ -128,7 +133,7 @@ internal object TaskRegistrar {
 
             if (!coverageEnabled) return@register
 
-            for (project in targets.filterNot { skipCoverageIfTestExcluded(it, excludedTasks) }) {
+            for (project in covered) {
                 when (coverageTool) {
                     CoverageExtension.Tool.JACOCO -> {
                         dependOnIfExists(task, project, "jacocoTestReport", excludedTasks)
@@ -147,15 +152,17 @@ internal object TaskRegistrar {
                 task.dependsOn("jacocoOverallCoverageReport")
                 task.dependsOn("jacocoOverallCoverageVerification")
             }
-            if (coverageTool == CoverageExtension.Tool.KOVER) {
+            // A source-carrying root skipped above must not get its own report/verify back here;
+            // a pure aggregator root (not a target) keeps its merged report wired.
+            if (coverageTool == CoverageExtension.Tool.KOVER && !rootCoverageSkipped) {
                 // Either merged-* (multi-module) or single-module — exactly one set is
                 // expected to exist. Use the silent helper here so the absent half
                 // doesn't fire a spurious warning. If BOTH are missing, the per-project
                 // `dependOnExpectedTask` calls above will already have warned.
-                dependOnRootIfExists(task, rootProject, KOVER_MERGED_XML_REPORT, excludedTasks)
-                dependOnRootIfExists(task, rootProject, KOVER_XML_REPORT, excludedTasks)
-                dependOnRootIfExists(task, rootProject, KOVER_MERGED_VERIFY, excludedTasks)
-                dependOnRootIfExists(task, rootProject, KOVER_VERIFY, excludedTasks)
+                dependOnRootIfExists(task, rootProject, KOVER_MERGED_XML_REPORT)
+                dependOnRootIfExists(task, rootProject, KOVER_XML_REPORT)
+                dependOnRootIfExists(task, rootProject, KOVER_MERGED_VERIFY)
+                dependOnRootIfExists(task, rootProject, KOVER_VERIFY)
             }
         }
     }
@@ -331,10 +338,7 @@ internal object TaskRegistrar {
         task: Task,
         rootProject: Project,
         taskName: String,
-        excludedTasks: Set<String>,
     ) {
-        // Single-module build: the root's own report/verify are the module's, skipped with its excluded `test`.
-        if (rootProject.subprojects.isEmpty() && isTaskExcluded(rootProject.path, "test", excludedTasks)) return
         if (taskName in rootProject.tasks.names) {
             task.dependsOn(":$taskName")
         }

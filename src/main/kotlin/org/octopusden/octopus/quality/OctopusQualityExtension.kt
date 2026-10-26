@@ -28,7 +28,12 @@ open class OctopusQualityExtension
          * under `check`, it is simply not pulled in by `qualityCoverage`.
          *
          * Excluding a module's `test` also drops that module's coverage report and verification from
-         * `qualityCoverage` (they depend on `test`), with a warning.
+         * `qualityCoverage` (they depend on `test`), with a warning that its coverage floor is not
+         * enforced there.
+         *
+         * Limitation: only the standard `test` task is handled. Kover's per-module coverage tasks also
+         * depend on every other Test task of the module (e.g. `integrationTest`), so excluding those
+         * still runs them. A root-level Kover merge still depends on every module's tests.
          */
         val excludedTasks: SetProperty<String> = objects.setProperty(String::class.java).convention(emptySet())
 

@@ -46,20 +46,39 @@ internal fun isCoverageSuite(
         !isTaskExcluded(projectPath, taskName, excludedTasks)
 
 /**
- * True, after warning once, when [project]'s standard `test` task is excluded.
+ * True when the module at [projectPath] has its standard `test` task excluded.
  *
  * The module's coverage report and verification depend on `test`, so wiring them into an aggregate
- * would pull the excluded suite back into the graph; callers skip the module's coverage instead.
+ * would pull the excluded suite back into the graph; such a module's coverage is not wired at all.
  */
-internal fun skipCoverageIfTestExcluded(
-    project: Project,
+internal fun isCoverageSkippedByExcludedTest(
+    projectPath: String,
     excludedTasks: Set<String>,
-): Boolean {
-    if (!isTaskExcluded(project.path, "test", excludedTasks)) return false
-    project.logger.warn(
-        "octopusQuality: coverage of '${project.path}' is skipped because its test task is excluded. " +
-            "To drop the module from coverage deliberately use excludeProjects, " +
-            "or declare the suites that should count in coverage.additionalTestTasks.",
+): Boolean = isTaskExcluded(projectPath, "test", excludedTasks)
+
+private val COVERAGE_TASK_NAMES =
+    setOf(
+        "jacocoTestReport",
+        "jacocoTestCoverageVerification",
+        "koverXmlReport",
+        "koverVerify",
+        "koverMergedXmlReport",
+        "koverMergedVerify",
     )
-    return true
+
+/**
+ * Warns, for each of [skipped] that actually has a coverage report/verify task, that its coverage
+ * floor is not enforced by `qualityCoverage`. No-op when coverage is not [enabled].
+ */
+internal fun warnCoverageNotEnforced(
+    skipped: List<Project>,
+    enabled: Boolean,
+) {
+    if (!enabled) return
+    for (project in skipped.filter { p -> p.tasks.names.any { it in COVERAGE_TASK_NAMES } }) {
+        project.logger.warn(
+            "octopusQuality: '${project.path}' has its test task excluded, so its coverage floor is " +
+                "NOT enforced by qualityCoverage. To make that explicit, use excludeProjects(\"${project.path}\").",
+        )
+    }
 }
