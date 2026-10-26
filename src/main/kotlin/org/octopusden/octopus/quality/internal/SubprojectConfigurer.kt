@@ -63,17 +63,7 @@ internal object SubprojectConfigurer {
         // `ignoreFailures` — is wired here and tracks the consumer's later `octopusQuality { }` block.
         project.plugins.withId("dev.detekt") {
             markDetektConfigured(project)
-            try {
-                configureDetekt2(project, configDir, extension)
-            } catch (e: LinkageError) {
-                // NoSuchMethodError / NoSuchFieldError / NoClassDefFoundError / AbstractMethodError: the
-                // dev.detekt API this plugin was compiled against differs from the one on the classpath.
-                throw GradleException(
-                    "The dev.detekt version in use is not supported by this plugin version " +
-                        "(${e.javaClass.simpleName}: ${e.message}). Supported: $SUPPORTED_DETEKT2.",
-                    e,
-                )
-            }
+            withSupportedDetekt2 { configureDetekt2(project, configDir, extension) }
         }
     }
 
@@ -367,13 +357,33 @@ internal object SubprojectConfigurer {
             ext.ignoreFailures.set(extension.kotlin.failOnViolation.map { !it })
         }
         // detekt 2 has no `xml` report: its checkstyle-format XML is the equivalent.
+        // Runs later, when a task is realized — outside the caller's guard, so it carries its own.
         project.tasks.withType(dev.detekt.gradle.Detekt::class.java).configureEach { task ->
-            task.reports {
-                it.checkstyle.required.set(true)
-                it.html.required.set(true)
-                it.sarif.required.set(true)
-                it.markdown.required.set(false)
+            withSupportedDetekt2 {
+                task.reports {
+                    it.checkstyle.required.set(true)
+                    it.html.required.set(true)
+                    it.sarif.required.set(true)
+                    it.markdown.required.set(false)
+                }
             }
+        }
+    }
+
+    /**
+     * Runs [block] against the dev.detekt API and turns a LinkageError (NoSuchMethodError,
+     * NoSuchFieldError, NoClassDefFoundError, AbstractMethodError — the API this plugin was compiled
+     * against differs from the one on the classpath) into a message naming the supported versions.
+     */
+    private fun withSupportedDetekt2(block: () -> Unit) {
+        try {
+            block()
+        } catch (e: LinkageError) {
+            throw GradleException(
+                "The dev.detekt version in use is not supported by this plugin version " +
+                    "(${e.javaClass.simpleName}: ${e.message}). Supported: $SUPPORTED_DETEKT2.",
+                e,
+            )
         }
     }
 
