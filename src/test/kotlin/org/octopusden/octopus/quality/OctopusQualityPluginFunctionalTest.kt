@@ -3124,4 +3124,71 @@ class OctopusQualityPluginFunctionalTest {
         assertTrue(":koverXmlReport" in tasks, "the merged root report stays wired; got: $tasks")
         assertTrue(":koverVerify" in tasks, "the merged root verify stays wired; got: $tasks")
     }
+
+    /** Source-less aggregator root merging Kover reports of `lib` and `app` (`dependencies { kover(project(...)) }`). */
+    private fun koverAggregatorBuild(excludeTasksArgs: String) =
+        """
+        plugins {
+            kotlin("jvm") version "1.9.25" apply false
+            id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+            id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+            id("org.jetbrains.kotlinx.kover") version "0.9.4"
+            id("org.octopusden.octopus-quality")
+        }
+        dependencies {
+            kover(project(":lib"))
+            kover(project(":app"))
+        }
+        subprojects {
+            apply(plugin = "org.jetbrains.kotlin.jvm")
+            apply(plugin = "io.gitlab.arturbosch.detekt")
+            apply(plugin = "org.jlleitschuh.gradle.ktlint")
+            apply(plugin = "org.jetbrains.kotlinx.kover")
+            repositories { mavenCentral() }
+        }
+        octopusQuality {
+            kotlin { failOnViolation.set(false) }
+            $excludeTasksArgs
+        }
+        """.trimIndent()
+
+    private fun writeLibAndApp() {
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+        writeKotlinFile("app/src/main/kotlin/com/example/App.kt", "package com.example\nfun app() = 1\n")
+    }
+
+    @Test
+    fun `kover - aggregator root merge does not pull an excluded module test back into qualityCoverage`() {
+        settingsFile(kotlinSettings("test-kover-aggregator-exclude-test", """include("lib", "app")"""))
+        buildFile(koverAggregatorBuild("""excludeTasks(":lib:test")"""))
+        writeLibAndApp()
+
+        val result = runner("qualityCoverage", "--dry-run").build()
+        val tasks = scheduledTasks(result)
+
+        assertFalse(":lib:test" in tasks, "excluded suite must not be scheduled via the merged report; got: $tasks")
+        assertFalse(":koverXmlReport" in tasks, "merged root report depends on every module's test; got: $tasks")
+        assertFalse(":koverVerify" in tasks, "merged root verify depends on every module's test; got: $tasks")
+        assertTrue(":app:test" in tasks, "remaining modules keep their suite; got: $tasks")
+        assertTrue(":app:koverVerify" in tasks, "remaining modules keep per-module coverage; got: $tasks")
+        assertTrue(
+            result.output.contains("merged coverage") && result.output.contains(":lib:test"),
+            "one warning must say the merged coverage is not checked and name the excluded task; got: ${result.output}",
+        )
+    }
+
+    @Test
+    fun `kover - aggregator root merged report stays wired for a build with no excluded test`() {
+        settingsFile(kotlinSettings("test-kover-aggregator-no-exclusion", """include("lib", "app")"""))
+        buildFile(koverAggregatorBuild(""))
+        writeLibAndApp()
+
+        val result = runner("qualityCoverage", "--dry-run").build()
+        val tasks = scheduledTasks(result)
+
+        assertTrue(":koverXmlReport" in tasks, "the merged root report stays wired; got: $tasks")
+        assertTrue(":koverVerify" in tasks, "the merged root verify stays wired; got: $tasks")
+        assertTrue(":lib:test" in tasks && ":app:test" in tasks, "got: $tasks")
+        assertFalse(result.output.contains("merged coverage"), "no warning without an excluded test; got: ${result.output}")
+    }
 }
