@@ -121,13 +121,13 @@ internal object TaskRegistrar {
         // (excludeProjects / its test excluded) and when ANY target's `test` is excluded, since the
         // merge depends on every module's `test`.
         val rootKoverUnwired =
-            skipped.isNotEmpty() ||
-                isRootCoverageDropped(
-                    rootProject in coverageCandidates(rootProject),
-                    extension.coverageExcludedProjects.get(),
-                    excludedTasks,
-                    rootProject.name,
-                )
+            isRootKoverUnwired(
+                skipped.isNotEmpty(),
+                rootProject in coverageCandidates(rootProject),
+                extension.coverageExcludedProjects.get(),
+                excludedTasks,
+                rootProject.name,
+            )
         warnMergedCoverageNotChecked(rootProject, skipped, coverageTool)
 
         rootProject.tasks.register("qualityCoverage") { task ->

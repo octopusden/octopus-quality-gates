@@ -73,3 +73,18 @@ internal fun isRootCoverageDropped(
             isProjectExcluded(":", rootName, excludedProjects) ||
                 isCoverageSkippedByExcludedTest(":", excludedTasks)
         )
+
+/**
+ * True when the root's merged (or own) Kover report/verify must stay out of `qualityCoverage`:
+ * the root's own coverage is dropped ([isRootCoverageDropped]), or some coverage target is skipped
+ * for an excluded `test` ([anyTargetSkipped]) and the merge would pull that suite back in. The two
+ * conditions are independent, so a source-less aggregator root that is not a candidate is still
+ * unwired by an excluded module test.
+ */
+internal fun isRootKoverUnwired(
+    anyTargetSkipped: Boolean,
+    rootIsCandidate: Boolean,
+    excludedProjects: Set<String>,
+    excludedTasks: Set<String>,
+    rootName: String,
+): Boolean = anyTargetSkipped || isRootCoverageDropped(rootIsCandidate, excludedProjects, excludedTasks, rootName)
