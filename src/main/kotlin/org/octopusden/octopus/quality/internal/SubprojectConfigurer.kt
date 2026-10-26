@@ -1,5 +1,6 @@
 package org.octopusden.octopus.quality.internal
 
+import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.octopusden.octopus.quality.CoverageExtension
 import org.octopusden.octopus.quality.OctopusQualityExtension
@@ -11,6 +12,12 @@ import java.io.File
  */
 @Suppress("TooManyFunctions") // One configurer per supported tool — splitting would just relocate the count.
 internal object SubprojectConfigurer {
+    /** Extra-property key set on a project once detekt (1.x or 2.x) was configured by this plugin. */
+    const val DETEKT_CONFIGURED_KEY = "octopusQuality.detektConfigured"
+
+    /** dev.detekt versions this plugin is compiled and tested against. */
+    private const val SUPPORTED_DETEKT2 = "2.0.0-alpha.5, 2.0.0-alpha.6"
+
     /**
      * Minimum JDK an ErrorProne engine release can RUN on, derived from its bytecode target — an
      * objective property of the jar, unlike the upper bound, which is a per-JDK empirical result and
@@ -49,7 +56,14 @@ internal object SubprojectConfigurer {
             configureKtlint(project, configDir, extension)
         }
         project.plugins.withId("io.gitlab.arturbosch.detekt") {
+            markDetektConfigured(project)
             configureDetektEarly(project, configDir)
+        }
+        // detekt 2 (`dev.detekt`) has lazy Properties throughout, so everything — including
+        // `ignoreFailures` — is wired here and tracks the consumer's later `octopusQuality { }` block.
+        project.plugins.withId("dev.detekt") {
+            markDetektConfigured(project)
+            withSupportedDetekt2 { configureDetekt2(project, configDir, extension) }
         }
     }
 
@@ -315,6 +329,61 @@ internal object SubprojectConfigurer {
                 it.sarif.required.set(true)
                 it.txt.required.set(false)
             }
+        }
+    }
+
+    /**
+     * Records that this plugin configured detekt for [project], read by [HollowGateGuard]: a task
+     * that merely carries the name `detekt` is not proof that the bundled config is applied.
+     */
+    private fun markDetektConfigured(project: Project) {
+        project.extensions.extraProperties.set(DETEKT_CONFIGURED_KEY, true)
+    }
+
+    /** detekt 2 counterpart of [configureDetektEarly] + [configureDetektFailureFlag], all lazy. */
+    private fun configureDetekt2(
+        project: Project,
+        configDir: File,
+        extension: OctopusQualityExtension,
+    ) {
+        project.extensions.configure(dev.detekt.gradle.extensions.DetektExtension::class.java) { ext ->
+            ext.buildUponDefaultConfig.set(true)
+            ext.allRules.set(false)
+            ext.config.setFrom(File(configDir, "detekt-2.yml"))
+            val baselineFile = File(project.projectDir, "detekt-baseline.xml")
+            if (baselineFile.exists()) {
+                ext.baseline.set(baselineFile)
+            }
+            ext.ignoreFailures.set(extension.kotlin.failOnViolation.map { !it })
+        }
+        // detekt 2 has no `xml` report: its checkstyle-format XML is the equivalent.
+        // Runs later, when a task is realized — outside the caller's guard, so it carries its own.
+        project.tasks.withType(dev.detekt.gradle.Detekt::class.java).configureEach { task ->
+            withSupportedDetekt2 {
+                task.reports {
+                    it.checkstyle.required.set(true)
+                    it.html.required.set(true)
+                    it.sarif.required.set(true)
+                    it.markdown.required.set(false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Runs [block] against the dev.detekt API and turns a LinkageError (NoSuchMethodError,
+     * NoSuchFieldError, NoClassDefFoundError, AbstractMethodError — the API this plugin was compiled
+     * against differs from the one on the classpath) into a message naming the supported versions.
+     */
+    private fun withSupportedDetekt2(block: () -> Unit) {
+        try {
+            block()
+        } catch (e: LinkageError) {
+            throw GradleException(
+                "The dev.detekt version in use is not supported by this plugin version " +
+                    "(${e.javaClass.simpleName}: ${e.message}). Supported: $SUPPORTED_DETEKT2.",
+                e,
+            )
         }
     }
 

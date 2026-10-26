@@ -1552,6 +1552,215 @@ class OctopusQualityPluginFunctionalTest {
     }
 
     // ---------------------------------------------------------------
+    // detekt 2 (`dev.detekt`): the bundled config, reports and report-only mode must apply
+    // exactly as they do for detekt 1.x, and the guard must notice when they do not.
+    // ---------------------------------------------------------------
+
+    /** 124-char line (bundled limit 140, detekt default 120) plus a ClassOrdering violation. */
+    private fun writeDetekt2Violations() {
+        val prefix = "    fun text(): String = \""
+        val line = prefix + "x".repeat(124 - prefix.length - 1) + "\""
+        writeKotlinFile(
+            "src/main/kotlin/com/example/Sample.kt",
+            "package com.example\n\n" +
+                "class Sample {\n" +
+                "    companion object {\n        const val ID = 1\n    }\n\n" +
+                "    val after = ID\n\n" +
+                "$line\n" +
+                "}\n",
+        )
+    }
+
+    /**
+     * detekt 2 needs Kotlin Gradle plugin 2.x, while the shared TestKit plugin classpath carries
+     * KGP 1.9.25 for every other fixture. Replace the Kotlin jars on this runner's classpath with
+     * KGP 2.3.10 (resolved by the `kgp2Plugin` configuration) so detekt 2 sees a compatible KGP.
+     */
+    private fun detekt2Runner(vararg args: String): GradleRunner {
+        val metadata =
+            java.util.Properties().apply {
+                OctopusQualityPluginFunctionalTest::class.java.classLoader
+                    .getResourceAsStream("plugin-under-test-metadata.properties")!!
+                    .use { load(it) }
+            }
+        val kgp2 =
+            checkNotNull(System.getProperty("kgp2.classpath")) {
+                "System property kgp2.classpath is missing: it is set by the Gradle `test` task in build.gradle.kts"
+            }
+        // Compare file names, not path text, so the filter is separator-independent.
+        val kotlinJar = Regex("^kotlin-.*\\.jar$")
+        val classpath =
+            metadata
+                .getProperty("implementation-classpath")
+                .split(File.pathSeparator)
+                .map(::File)
+                .filterNot { kotlinJar.matches(it.name) }
+                .plus(kgp2.split(File.pathSeparator).map(::File))
+        return runner(*args).withPluginClasspath(classpath)
+    }
+
+    private fun detekt2Project(failOnViolation: Boolean) {
+        settingsFile(kotlinSettings("test-detekt2"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "2.3.10"
+                id("dev.detekt") version "2.0.0-alpha.5"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set($failOnViolation) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeDetekt2Violations()
+    }
+
+    private fun detekt2Findings(): String {
+        val dir = File(projectDir, "build/reports/detekt")
+        if (!dir.exists()) return ""
+        return dir
+            .walkTopDown()
+            // XML only: the SARIF file also lists every rule's metadata, findings or not.
+            .filter { it.isFile && it.extension == "xml" }
+            .joinToString("\n") { it.readText() }
+    }
+
+    @Test
+    fun `detekt 2 - bundled config applied and report-only mode does not fail the build`() {
+        detekt2Project(failOnViolation = false)
+
+        val result = detekt2Runner("detekt").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":detekt")?.outcome)
+        val findings = detekt2Findings()
+        assertTrue(findings.contains("ClassOrdering\""), "Bundled config not applied; findings:\n$findings")
+        assertFalse(findings.contains("MaxLineLength\""), "detekt default 120 applied, not bundled 140:\n$findings")
+        assertTrue(File(projectDir, "build/reports/detekt/detekt.html").isFile, "html report not enabled")
+        assertTrue(
+            File(projectDir, "build/reports/detekt").walkTopDown().any { it.extension == "sarif" },
+            "sarif report not enabled",
+        )
+    }
+
+    @Test
+    fun `detekt 2 - failOnViolation true fails the build`() {
+        detekt2Project(failOnViolation = true)
+
+        val result = detekt2Runner("detekt").buildAndFail()
+
+        assertEquals(TaskOutcome.FAILED, result.task(":detekt")?.outcome)
+        assertTrue(detekt2Findings().contains("ClassOrdering\""), "Bundled config not applied")
+    }
+
+    @Test
+    fun `hollow gate - a detekt task the plugin did not configure fails qualityStatic`() {
+        settingsFile(kotlinSettings("test-hollow-detekt"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            // A task that merely carries the name: no detekt plugin, so nothing was configured.
+            tasks.register("detekt")
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile(
+            "src/main/kotlin/com/example/Hello.kt",
+            "package com.example\nfun hello() = \"Hello\"\n",
+        )
+
+        val result = runner("qualityStatic").buildAndFail()
+
+        assertEquals(TaskOutcome.FAILED, result.task(":verifyStaticAnalysisApplied")?.outcome)
+        assertTrue(result.output.contains("Hollow quality gate"), "got: ${result.output}")
+        assertTrue(result.output.contains("detekt not configured"), "got: ${result.output}")
+        assertTrue(result.output.contains("io.gitlab.arturbosch.detekt"), "got: ${result.output}")
+        assertTrue(result.output.contains("dev.detekt"), "got: ${result.output}")
+        assertTrue(result.output.contains("JDK 24"), "got: ${result.output}")
+    }
+
+    private fun hollowDetektProject(excluded: String) {
+        settingsFile(kotlinSettings("test-hollow-detekt-excluded"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            tasks.register("detekt")
+            octopusQuality {
+                excludeTasks($excluded)
+                kotlin { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile(
+            "src/main/kotlin/com/example/Hello.kt",
+            "package com.example\nfun hello() = \"Hello\"\n",
+        )
+    }
+
+    @Test
+    fun `hollow gate - detekt excluded by bare name is not reported as unconfigured`() {
+        hollowDetektProject("\"detekt\"")
+
+        val result = runner("verifyStaticAnalysisApplied").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyStaticAnalysisApplied")?.outcome)
+    }
+
+    @Test
+    fun `hollow gate - detekt excluded by qualified path is not reported as unconfigured`() {
+        hollowDetektProject("\":detekt\"")
+
+        val result = runner("verifyStaticAnalysisApplied").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyStaticAnalysisApplied")?.outcome)
+    }
+
+    @Test
+    fun `hollow gate - reports missing tasks and unconfigured detekt in one message`() {
+        settingsFile(kotlinSettings("test-hollow-both"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            tasks.register("detekt")
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                coverage { enabled.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile(
+            "src/main/kotlin/com/example/Hello.kt",
+            "package com.example\nfun hello() = \"Hello\"\n",
+        )
+
+        val result = runner("qualityStatic").buildAndFail()
+
+        assertTrue(result.output.contains("ktlintCheck task(s) missing"), "got: ${result.output}")
+        assertTrue(result.output.contains("detekt not configured"), "got: ${result.output}")
+    }
+
+    // ---------------------------------------------------------------
     // Fix: ktlint must NOT be excluded just because the package path contains a
     // "build" segment. Pre-fix, the `**/build/**` glob excluded any source under a
     // `.../build/...` package (e.g. org.octopusden.octopus.build.integration), so

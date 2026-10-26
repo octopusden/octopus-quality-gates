@@ -1,0 +1,55 @@
+# detekt 2 dropped `build.maxIssues`: any finding fails the task unless `ignoreFailures` is set,
+# which the plugin derives from `kotlin.failOnViolation`.
+
+config:
+  validation: true
+
+exceptions:
+  SwallowedException:
+    active: true
+  TooGenericExceptionCaught:
+    active: true
+
+complexity:
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+  NestedBlockDepth:
+    active: false
+
+naming:
+  TopLevelPropertyNaming:
+    active: true
+
+performance:
+  SpreadOperator:
+    active: false
+
+style:
+  ClassOrdering:
+    active: true
+  ForbiddenComment:
+    active: true
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: true
+    maxLineLength: 140
+  NewLineAtEndOfFile:
+    active: true
+  ProtectedMemberInFinalClass:
+    active: true
+  ReturnCount:
+    active: false
+  # detekt 2 split UnusedPrivateMember into the three rules below.
+  UnusedPrivateClass:
+    active: true
+  UnusedPrivateFunction:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UseCheckOrError:
+    active: true
+  WildcardImport:
+    active: true

@@ -27,6 +27,7 @@ internal object HollowGateGuard {
     fun register(
         rootProject: Project,
         targets: List<Project>,
+        excludedTasks: Set<String>,
     ) {
         // Computed here (from `gradle.projectsEvaluated`, so tasks are resolved) and captured into the
         // task action as plain strings — no Project/task references leak into execution, keeping the
@@ -35,11 +36,26 @@ internal object HollowGateGuard {
             targets.mapNotNull { project ->
                 if (!LanguageDetector.detect(project).hasKotlin) return@mapNotNull null
                 val missing = REQUIRED_KOTLIN_TASKS.filter { project.tasks.findByName(it) == null }
-                if (missing.isEmpty()) {
+                val detektUnconfigured =
+                    "detekt" !in missing &&
+                        !isTaskExcluded(project.path, "detekt", excludedTasks) &&
+                        !project.extensions.extraProperties.has(SubprojectConfigurer.DETEKT_CONFIGURED_KEY)
+                val found = mutableListOf<String>()
+                if (missing.isNotEmpty()) {
+                    found +=
+                        "${missing.joinToString(", ")} task(s) missing — apply the plugin(s) in this " +
+                        "module's build script."
+                }
+                if (detektUnconfigured) {
+                    found +=
+                        "detekt not configured by the quality plugin — a `detekt` task exists but neither " +
+                        "io.gitlab.arturbosch.detekt (detekt 1) nor dev.detekt (detekt 2; use it on JDK 24+) " +
+                        "was applied, so the bundled config, baseline and failOnViolation are not in effect."
+                }
+                if (found.isEmpty()) {
                     null
                 } else {
-                    "${project.path}: Kotlin sources present but ${missing.joinToString(", ")} " +
-                        "task(s) missing — apply the plugin(s) in this module's build script."
+                    "${project.path}: Kotlin sources present but " + found.joinToString(" Also: ")
                 }
             }
 
@@ -54,8 +70,8 @@ internal object HollowGateGuard {
                         throw GradleException(
                             "Hollow quality gate — static analysis would pass without scanning Kotlin:\n" +
                                 problems.joinToString("\n") { "  - $it" } +
-                                "\nSee OctopusQualityPlugin KDoc: consumers must apply detekt & ktlint " +
-                                "per Kotlin subproject.",
+                                "\nSee OctopusQualityPlugin KDoc: consumers must apply detekt " +
+                                "(io.gitlab.arturbosch.detekt or dev.detekt) & ktlint per Kotlin subproject.",
                         )
                     }
                 }

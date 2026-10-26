@@ -15,6 +15,7 @@ internal object ConfigExtractor {
     private val CONFIG_FILES =
         listOf(
             "detekt.yml",
+            "detekt-2.yml",
             "checkstyle.xml",
             "pmd-ruleset.xml",
             "codenarc.groovy",

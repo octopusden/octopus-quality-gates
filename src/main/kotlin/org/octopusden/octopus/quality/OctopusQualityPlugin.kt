@@ -29,17 +29,21 @@ import org.octopusden.octopus.quality.internal.TaskRegistrar
  * // build.gradle.kts — apply at root:
  * plugins {
  *     kotlin("jvm") apply false
- *     id("io.gitlab.arturbosch.detekt") apply false
+ *     id("io.gitlab.arturbosch.detekt") apply false // or id("dev.detekt") (detekt 2, required on JDK 24+)
  *     id("org.jlleitschuh.gradle.ktlint") apply false
  *     id("org.octopusden.octopus-quality")
  * }
  *
  * subprojects {
  *     apply(plugin = "org.jetbrains.kotlin.jvm")
- *     apply(plugin = "io.gitlab.arturbosch.detekt")
+ *     apply(plugin = "io.gitlab.arturbosch.detekt") // or "dev.detekt" for detekt 2
  *     apply(plugin = "org.jlleitschuh.gradle.ktlint")
  * }
  * ```
+ *
+ * Supported `dev.detekt` (detekt 2) versions: 2.0.0-alpha.5 (compiled against and tested) and
+ * 2.0.0-alpha.6 (the detekt 2 functional test passes against it). Other versions fail the build with
+ * a "not supported" message when the API differs.
  *
  * The plugin auto-detects languages per subproject and configures:
  * - **Kotlin** (when detekt/ktlint applied): shared detekt.yml, baseline support, report formats
