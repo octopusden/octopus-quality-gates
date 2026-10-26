@@ -931,7 +931,19 @@ class OctopusQualityPluginFunctionalTest {
                     }
                 }
                 """.trimIndent(),
-            ),
+            ) +
+                // Both checks inspect artifact extensions; this one throws when resolved, so the build
+                // only succeeds if neither check snapshots publications while it is switched off.
+                """
+
+                publishing {
+                    publications.withType<MavenPublication>().configureEach {
+                        artifact(provider<File> { error("artifact resolved while the checks are off") }) {
+                            classifier = "sources"
+                        }
+                    }
+                }
+                """.trimIndent(),
         )
         writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
 
@@ -948,6 +960,8 @@ class OctopusQualityPluginFunctionalTest {
         writeKotlinFile("src/main/kotlin/com/example/App.kt", "package com.example\n\nfun main() = Unit\n")
 
         runner("help", "--configuration-cache").build()
+        val unchanged = runner("help", "--configuration-cache").build()
+        assertTrue(unchanged.output.contains("Reusing configuration cache"), unchanged.output)
         val detektConfig = File(projectDir, ".gradle/octopus-quality/config/detekt.yml")
         assertTrue(detektConfig.isFile, "config must be extracted")
         detektConfig.delete()
