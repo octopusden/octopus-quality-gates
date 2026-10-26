@@ -3027,4 +3027,101 @@ class OctopusQualityPluginFunctionalTest {
         assertTrue(":alpha:test" in tasks, "other modules are unaffected; got: $tasks")
         assertTrue(":jacocoOverallCoverageReport" in tasks, "the overall aggregate still runs; got: $tasks")
     }
+
+    @Test
+    fun `kover - single module with excluded test keeps its own coverage tasks out of qualityCoverage`() {
+        settingsFile(kotlinSettings("test-kover-single-exclude-test"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                excludeTasks(":test")
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 1\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":test" in tasks, "excluded suite must not be scheduled; got: $tasks")
+        assertFalse(":koverXmlReport" in tasks, "got: $tasks")
+        assertFalse(":koverVerify" in tasks, "got: $tasks")
+    }
+
+    @Test
+    fun `kover - multi-module with a source root and excluded root test keeps root out but wires subprojects`() {
+        settingsFile(kotlinSettings("test-kover-root-sources-exclude-test", """include("lib")"""))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            dependencies { kover(project(":lib")) }
+            subprojects {
+                apply(plugin = "org.jetbrains.kotlin.jvm")
+                apply(plugin = "io.gitlab.arturbosch.detekt")
+                apply(plugin = "org.jlleitschuh.gradle.ktlint")
+                apply(plugin = "org.jetbrains.kotlinx.kover")
+                repositories { mavenCentral() }
+            }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                excludeTasks(":test")
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 1\n")
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":test" in tasks, "excluded root suite must not be scheduled; got: $tasks")
+        assertFalse(":koverXmlReport" in tasks, "root coverage must not pull the excluded suite back; got: $tasks")
+        assertFalse(":koverVerify" in tasks, "root coverage must not pull the excluded suite back; got: $tasks")
+        assertTrue(":lib:koverVerify" in tasks, "subprojects are unaffected; got: $tasks")
+    }
+
+    @Test
+    fun `kover - pure aggregator root keeps its merged report wired without exclusions`() {
+        settingsFile(kotlinSettings("test-kover-aggregator-root", """include("lib")"""))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25" apply false
+                id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            dependencies { kover(project(":lib")) }
+            subprojects {
+                apply(plugin = "org.jetbrains.kotlin.jvm")
+                apply(plugin = "io.gitlab.arturbosch.detekt")
+                apply(plugin = "org.jlleitschuh.gradle.ktlint")
+                apply(plugin = "org.jetbrains.kotlinx.kover")
+                repositories { mavenCentral() }
+            }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertTrue(":koverXmlReport" in tasks, "the merged root report stays wired; got: $tasks")
+        assertTrue(":koverVerify" in tasks, "the merged root verify stays wired; got: $tasks")
+    }
 }
