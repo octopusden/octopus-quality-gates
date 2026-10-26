@@ -1900,8 +1900,9 @@ class OctopusQualityPluginFunctionalTest {
         writeKotlinFile("src/main/java/com/example/Hello.java", "package com.example;\npublic class Hello {}\n")
         writeKotlinFile("src/test/resources/fixtures/Sample.kt", "package fixtures\nfun sample() = 1\n")
 
-        val result = runner("qualityStatic").run().output
-        assertFalse(result.contains("Hollow quality gate"), "Resource .kt must not count; got: $result")
+        // Only the guard runs, so nothing else can fail the build and hide its outcome.
+        val result = runner("verifyStaticAnalysisApplied").build()
+        assertEquals(TaskOutcome.SUCCESS, result.task(":verifyStaticAnalysisApplied")?.outcome, result.output)
     }
 
     @Test
