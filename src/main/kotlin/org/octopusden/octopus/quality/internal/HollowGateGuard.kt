@@ -48,9 +48,9 @@ internal object HollowGateGuard {
                 }
                 if (detektUnconfigured) {
                     found +=
-                        "detekt not configured by the quality plugin — a `detekt` task exists but neither " +
-                        "io.gitlab.arturbosch.detekt (detekt 1) nor dev.detekt (detekt 2; use it on JDK 24+) " +
-                        "was applied, so the bundled config, baseline and failOnViolation are not in effect."
+                        "detekt not configured by the quality plugin — a `detekt` task exists, but it was not " +
+                        "configured via io.gitlab.arturbosch.detekt (detekt 1) or dev.detekt (detekt 2; use it " +
+                        "on JDK 24+), so the bundled config, baseline and failOnViolation are not in effect."
                 }
                 if (found.isEmpty()) {
                     null
