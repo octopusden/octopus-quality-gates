@@ -37,30 +37,45 @@ internal object LanguageDetector {
     }
 
     private fun scan(project: Project): DetectedLanguages {
-        var hasKotlin = false
-        var hasJava = false
-        var hasGroovy = false
-
+        var found = DetectedLanguages(hasKotlin = false, hasJava = false, hasGroovy = false)
         File(project.projectDir, "src")
             .listFiles { f -> f.isDirectory }
             .orEmpty()
             .flatMap { set -> LANGUAGE_DIRS.map { File(set, it) } }
             .filter { it.isDirectory }
-            .forEach { root ->
-                root
-                    .walkTopDown()
-                    .filter { it.isFile }
-                    .forEach {
-                        when (it.extension) {
-                            "kt" -> hasKotlin = true
-                            "java" -> hasJava = true
-                            "groovy" -> hasGroovy = true
-                        }
-                        if (hasKotlin && hasJava && hasGroovy) return DetectedLanguages(true, true, true)
-                    }
-            }
+            .forEach { found = walkRoot(it, found).languages }
+        return found
+    }
 
-        return DetectedLanguages(hasKotlin, hasJava, hasGroovy)
+    internal data class RootScan(
+        val languages: DetectedLanguages,
+        val dirsListed: Int,
+    )
+
+    internal fun walkRoot(
+        root: File,
+        known: DetectedLanguages,
+    ): RootScan {
+        var hasKotlin = known.hasKotlin
+        var hasJava = known.hasJava
+        var hasGroovy = known.hasGroovy
+        var listed = 0
+        val pending = ArrayDeque(listOf(root))
+        while (pending.isNotEmpty()) {
+            listed++
+            for (f in pending.removeFirst().listFiles().orEmpty()) {
+                if (f.isDirectory) {
+                    pending.addLast(f)
+                } else {
+                    when (f.extension) {
+                        "kt" -> hasKotlin = true
+                        "java" -> hasJava = true
+                        "groovy" -> hasGroovy = true
+                    }
+                }
+            }
+        }
+        return RootScan(DetectedLanguages(hasKotlin, hasJava, hasGroovy), listed)
     }
 
     /** True if the project carries any JVM source (kotlin/java/groovy) of its own. */
