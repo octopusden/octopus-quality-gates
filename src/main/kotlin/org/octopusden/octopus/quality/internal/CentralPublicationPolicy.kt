@@ -84,7 +84,7 @@ internal object CentralPublicationPolicy {
         val enforce = rootExtension.publication.enforceCentralPublications
         // A provider, not a Project reference in the action: Gradle fixes its value when it stores the
         // configuration cache entry, so the task action never touches the Project model.
-        val publishing = project.provider { actualPublications(project) }
+        val publishing = project.provider { if (enforce.get()) actualPublications(project) else emptySet() }
 
         val verifyTask =
             project.tasks.register(TASK_NAME) { task ->

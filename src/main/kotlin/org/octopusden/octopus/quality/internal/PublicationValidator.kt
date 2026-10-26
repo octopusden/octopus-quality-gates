@@ -54,7 +54,7 @@ internal object PublicationValidator {
 
                     // Resolved when the configuration cache entry is stored (or at execution without
                     // it), so the action below never references the Project.
-                    val snapshots = project.provider { snapshot(project) }
+                    val snapshots = project.provider { if (validateForMavenCentral.get()) snapshot(project) else emptyList() }
                     val projectPath = project.path
 
                     task.doLast { self ->
