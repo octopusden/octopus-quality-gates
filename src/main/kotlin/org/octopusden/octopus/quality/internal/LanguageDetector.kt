@@ -14,39 +14,50 @@ internal data class DetectedLanguages(
 internal object LanguageDetector {
     private const val CACHE_KEY = "octopusQuality.detectedLanguages"
 
+    private val LANGUAGE_DIRS = setOf("kotlin", "java", "groovy")
+
     /**
-     * A language is present when a file with its extension exists under `src/` (any source set,
-     * any directory name, so Kotlin under `src/main/java` is Kotlin). Stops at the first file of
-     * each language; `.kts` build scripts are not `.kt`.
+     * A language is present when a file with its extension exists under a language root
+     * `src/<anySourceSet>/{kotlin,java,groovy}` (so Kotlin under `src/main/java` is Kotlin, while
+     * resources and generated-code directories are ignored). Stops at the first file of each
+     * language; `.kts` build scripts are not `.kt`.
      *
-     * Computed once per [Project] instance (cached in its extra properties, never statically:
-     * the daemon outlives builds), as callers invoke this repeatedly per project.
+     * Computed once per evaluated [Project] (cached in its extra properties, never statically:
+     * the daemon outlives builds), as callers invoke this repeatedly per project. A project that
+     * is not evaluated yet (a sibling seen from [detectAll]) is computed without caching, since
+     * its sources may still change.
+     *
+     * The configuration cache records the listings of the language roots, so adding or removing
+     * source files there triggers reconfiguration.
      */
     fun detect(project: Project): DetectedLanguages {
         val extra = project.extensions.extraProperties
         if (extra.has(CACHE_KEY)) return extra.get(CACHE_KEY) as DetectedLanguages
-        return scan(project).also { extra.set(CACHE_KEY, it) }
+        return scan(project).also { if (project.state.executed) extra.set(CACHE_KEY, it) }
     }
 
     private fun scan(project: Project): DetectedLanguages {
         var hasKotlin = false
         var hasJava = false
         var hasGroovy = false
-        val buildDir =
-            project.layout.buildDirectory.asFile
-                .get()
 
         File(project.projectDir, "src")
-            .walkTopDown()
-            .onEnter { it != buildDir }
-            .filter { it.isFile }
-            .forEach {
-                when (it.extension) {
-                    "kt" -> hasKotlin = true
-                    "java" -> hasJava = true
-                    "groovy" -> hasGroovy = true
-                }
-                if (hasKotlin && hasJava && hasGroovy) return DetectedLanguages(true, true, true)
+            .listFiles { f -> f.isDirectory }
+            .orEmpty()
+            .flatMap { set -> LANGUAGE_DIRS.map { File(set, it) } }
+            .filter { it.isDirectory }
+            .forEach { root ->
+                root
+                    .walkTopDown()
+                    .filter { it.isFile }
+                    .forEach {
+                        when (it.extension) {
+                            "kt" -> hasKotlin = true
+                            "java" -> hasJava = true
+                            "groovy" -> hasGroovy = true
+                        }
+                        if (hasKotlin && hasJava && hasGroovy) return DetectedLanguages(true, true, true)
+                    }
             }
 
         return DetectedLanguages(hasKotlin, hasJava, hasGroovy)
