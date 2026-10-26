@@ -162,7 +162,13 @@ class TaskSelectionTest {
     fun `a bare entry warns as deprecated and names every project it matched`() {
         val warning = excludeProjectsWarnings(setOf("core"), cores).single()
         assertTrue(warning.contains("deprecated"))
-        assertTrue(warning.contains(":a:core") && warning.contains(":b:core"))
+        assertTrue(warning.contains("""excludeProjects(":a:core", ":b:core")"""), warning)
+    }
+
+    @Test
+    fun `an entry with a colon but no leading colon suggests the path form`() {
+        val warning = excludeProjectsWarnings(setOf("a:core"), cores).single()
+        assertTrue(warning.contains("""use excludeProjects(":a:core")"""), warning)
     }
 
     @Test

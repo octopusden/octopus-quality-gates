@@ -3247,7 +3247,7 @@ class OctopusQualityPluginFunctionalTest {
 
         assertFalse(":a:core:koverVerify" in tasks, "the excluded path must lose its coverage gate; got: $tasks")
         assertTrue(":b:core:koverVerify" in tasks, "the same-named sibling must keep its gate; got: $tasks")
-        assertFalse(result.output.contains("deprecated"), "a path entry is not deprecated; got: ${result.output}")
+        assertFalse(result.output.contains("octopusQuality: excludeProjects"), "a matching path entry must not warn; got: ${result.output}")
     }
 
     @Test
@@ -3257,10 +3257,13 @@ class OctopusQualityPluginFunctionalTest {
 
         assertFalse(":a:core:koverVerify" in tasks, "got: $tasks")
         assertFalse(":b:core:koverVerify" in tasks, "got: $tasks")
-        assertTrue(result.output.contains("deprecated"), "a bare name must warn; got: ${result.output}")
         assertTrue(
-            result.output.contains(":a:core") && result.output.contains(":b:core"),
-            "the warning must name every project the entry matched; got: ${result.output}",
+            result.output.contains("octopusQuality: excludeProjects(\"core\") matches by project name"),
+            "a bare name must warn; got: ${result.output}",
+        )
+        assertTrue(
+            result.output.contains("""excludeProjects(":a:core", ":b:core")"""),
+            "the suggestion must list every project the entry matched; got: ${result.output}",
         )
     }
 
@@ -3268,6 +3271,45 @@ class OctopusQualityPluginFunctionalTest {
     fun `excludeProjects entry that matches no project warns`() {
         val result = sameNameCoresBuild("""excludeProjects(":nope")""")
 
-        assertTrue(result.output.contains("matched no project"), "got: ${result.output}")
+        assertTrue(result.output.contains("""excludeProjects(":nope") matched no project"""), "got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects entry with a colon but no leading colon suggests the path form`() {
+        val result = sameNameCoresBuild("""excludeProjects("a:core")""")
+
+        assertTrue(result.output.contains("""use excludeProjects(":a:core")"""), "got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects judges a match against coverage candidates, not a source-less aggregator root`() {
+        val result = sameNameCoresBuild("""excludeProjects(":")""")
+
+        assertTrue(result.output.contains("""excludeProjects(":") matched no project"""), "got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects of the root in a single-module build drops its coverage tasks`() {
+        settingsFile(kotlinSettings("test-exclude-root-project"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                excludeProjects(":")
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 1\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":koverXmlReport" in tasks, "got: $tasks")
+        assertFalse(":koverVerify" in tasks, "got: $tasks")
     }
 }
