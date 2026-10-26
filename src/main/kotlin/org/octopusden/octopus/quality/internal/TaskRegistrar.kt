@@ -117,9 +117,17 @@ internal object TaskRegistrar {
         // One rule: a target whose `test` is excluded gets no coverage wiring, root included.
         val (skipped, covered) = targets.partition { isCoverageSkippedByExcludedTest(it.path, excludedTasks) }
         warnCoverageNotEnforced(skipped, coverageEnabled)
-        // A merged/own Kover report of the root depends on every module's `test`, so it is not wired
-        // while any target's `test` is excluded.
-        val rootKoverUnwired = skipped.isNotEmpty()
+        // The root's merged/own Kover report is left out when the root's own coverage is dropped
+        // (excludeProjects / its test excluded) and when ANY target's `test` is excluded, since the
+        // merge depends on every module's `test`.
+        val rootKoverUnwired =
+            skipped.isNotEmpty() ||
+                isRootCoverageDropped(
+                    rootProject in coverageCandidates(rootProject),
+                    extension.coverageExcludedProjects.get(),
+                    excludedTasks,
+                    rootProject.name,
+                )
         warnMergedCoverageNotChecked(rootProject, skipped, coverageTool)
 
         rootProject.tasks.register("qualityCoverage") { task ->
@@ -292,15 +300,7 @@ internal object TaskRegistrar {
         extension: OctopusQualityExtension,
     ): List<Project> {
         val excluded = extension.coverageExcludedProjects.get()
-        val allSubs = rootProject.allprojects.filter { it != rootProject }
-        return when {
-            allSubs.isEmpty() -> listOf(rootProject)
-            else -> {
-                val withRoot =
-                    if (LanguageDetector.hasAnySource(rootProject)) allSubs + rootProject else allSubs
-                withRoot.filterNot { isProjectExcluded(it.path, it.name, excluded) }
-            }
-        }
+        return coverageCandidates(rootProject).filterNot { isProjectExcluded(it.path, it.name, excluded) }
     }
 
     private fun dependOnIfExists(
