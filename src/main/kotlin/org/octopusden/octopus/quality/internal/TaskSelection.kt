@@ -1,5 +1,8 @@
 package org.octopusden.octopus.quality.internal
 
+import org.gradle.api.Project
+import org.octopusden.octopus.quality.CoverageExtension
+
 /**
  * Fully qualified path of [taskName] in the project at [projectPath].
  *
@@ -42,3 +45,70 @@ internal fun isCoverageSuite(
 ): Boolean =
     (taskName == "test" || taskName in additionalTestTasks) &&
         !isTaskExcluded(projectPath, taskName, excludedTasks)
+
+/**
+ * True when the module at [projectPath] has its standard `test` task excluded.
+ *
+ * The module's coverage report and verification depend on `test`, so wiring them into an aggregate
+ * would pull the excluded suite back into the graph; such a module's coverage is not wired at all.
+ */
+internal fun isCoverageSkippedByExcludedTest(
+    projectPath: String,
+    excludedTasks: Set<String>,
+): Boolean = isTaskExcluded(projectPath, "test", excludedTasks)
+
+/**
+ * The [covered] targets whose own coverage tasks `qualityCoverage` wires. Under Kover, a root whose
+ * report is unwired ([rootKoverUnwired]) is left out here too: its own report may merge other
+ * modules, so wiring it per module would bring their excluded `test` back.
+ */
+internal fun <T> perModuleCoverage(
+    covered: List<T>,
+    root: T,
+    rootKoverUnwired: Boolean,
+    tool: CoverageExtension.Tool?,
+): List<T> = if (rootKoverUnwired && tool == CoverageExtension.Tool.KOVER) covered - root else covered
+
+private val COVERAGE_TASK_NAMES =
+    setOf(
+        "jacocoTestReport",
+        "jacocoTestCoverageVerification",
+        "koverXmlReport",
+        "koverVerify",
+        "koverMergedXmlReport",
+        "koverMergedVerify",
+    )
+
+/**
+ * Warns, for each of [skipped] that actually has a coverage report/verify task, that its coverage
+ * floor is not enforced by `qualityCoverage`. No-op when coverage is not [enabled].
+ */
+internal fun warnCoverageNotEnforced(
+    skipped: List<Project>,
+    enabled: Boolean,
+) {
+    if (!enabled) return
+    for (project in skipped.filter { p -> p.tasks.names.any { it in COVERAGE_TASK_NAMES } }) {
+        project.logger.warn(
+            "octopusQuality: '${project.path}' has its test task excluded, so its coverage floor is " +
+                "NOT enforced by qualityCoverage. To make that explicit, use excludeProjects(\"${project.path}\").",
+        )
+    }
+}
+
+/**
+ * Warns once that the root's merged Kover report/floor is not checked by `qualityCoverage` while
+ * the `test` tasks of [skipped] are excluded. No-op unless coverage runs with Kover ([tool], null
+ * when disabled) in a multi-module build, or when nothing is skipped.
+ */
+internal fun warnMergedCoverageNotChecked(
+    root: Project,
+    skipped: List<Project>,
+    tool: CoverageExtension.Tool?,
+) {
+    if (tool != CoverageExtension.Tool.KOVER || skipped.isEmpty() || root.subprojects.isEmpty()) return
+    root.logger.warn(
+        "octopusQuality: the merged coverage report and floor are NOT checked by qualityCoverage while " +
+            "test tasks are excluded (${skipped.joinToString { qualifiedTaskPath(it.path, "test") }}).",
+    )
+}

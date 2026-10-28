@@ -93,4 +93,28 @@ class TaskSelectionTest {
         assertFalse(isCoverageSuite(":", "test", setOf(":test"), emptySet()))
         assertTrue(isCoverageSuite(":", "test", setOf(":other"), emptySet()))
     }
+
+    @Test
+    fun `coverage is skipped for a module whose test is excluded by path or bare name`() {
+        assertTrue(isCoverageSkippedByExcludedTest(":lib", setOf(":lib:test")))
+        assertTrue(isCoverageSkippedByExcludedTest(":lib", setOf("test")))
+        assertTrue(isCoverageSkippedByExcludedTest(":", setOf(":test")))
+    }
+
+    @Test
+    fun `coverage is not skipped for other modules or other excluded tasks`() {
+        assertFalse(isCoverageSkippedByExcludedTest(":app", setOf(":lib:test")))
+        assertFalse(isCoverageSkippedByExcludedTest(":lib", setOf(":lib:integrationTest")))
+        assertFalse(isCoverageSkippedByExcludedTest(":lib", emptySet()))
+    }
+
+    @Test
+    fun `per-module coverage leaves the root out only under kover when its report is unwired`() {
+        val covered = listOf(":", ":app")
+        val kover = org.octopusden.octopus.quality.CoverageExtension.Tool.KOVER
+        val jacoco = org.octopusden.octopus.quality.CoverageExtension.Tool.JACOCO
+        assertEquals(listOf(":app"), perModuleCoverage(covered, ":", rootKoverUnwired = true, tool = kover))
+        assertEquals(covered, perModuleCoverage(covered, ":", rootKoverUnwired = false, tool = kover))
+        assertEquals(covered, perModuleCoverage(covered, ":", rootKoverUnwired = true, tool = jacoco))
+    }
 }

@@ -26,6 +26,19 @@ open class OctopusQualityExtension
          * `qualityCheck`) — it prunes which analysis/coverage tasks those aggregates depend on.
          * It does NOT touch the standard `check` → `test` task graph: an excluded `test` still runs
          * under `check`, it is simply not pulled in by `qualityCoverage`.
+         *
+         * Excluding a module's `test` also drops that module's coverage report and verification from
+         * `qualityCoverage` (they depend on `test`), with a warning that its coverage floor is not
+         * enforced there.
+         *
+         * While at least one module's `test` is excluded this way, the root project's merged (or own)
+         * Kover report and verification are not wired into `qualityCoverage` either, since the merge
+         * depends on every module's `test`; a warning names the excluded tasks. Per-module coverage of
+         * the remaining modules stays wired.
+         *
+         * Limitation: only the standard `test` task is handled. Kover's per-module coverage tasks also
+         * depend on every other Test task of the module (e.g. `integrationTest`), so excluding those
+         * still runs them.
          */
         val excludedTasks: SetProperty<String> = objects.setProperty(String::class.java).convention(emptySet())
 

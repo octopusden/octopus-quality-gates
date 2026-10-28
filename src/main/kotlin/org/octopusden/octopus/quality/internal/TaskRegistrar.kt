@@ -113,6 +113,14 @@ internal object TaskRegistrar {
             registerJacocoOverallTasks(rootProject, targets, extension)
         }
 
+        // One rule: a target whose `test` is excluded gets no coverage wiring, root included.
+        val (skipped, covered) = targets.partition { isCoverageSkippedByExcludedTest(it.path, excludedTasks) }
+        warnCoverageNotEnforced(skipped, coverageEnabled)
+        // A merged/own Kover report of the root depends on every module's `test`, so it is not wired
+        // while any target's `test` is excluded.
+        val rootKoverUnwired = skipped.isNotEmpty()
+        warnMergedCoverageNotChecked(rootProject, skipped, coverageTool)
+
         rootProject.tasks.register("qualityCoverage") { task ->
             task.group = "verification"
             task.description =
@@ -128,7 +136,7 @@ internal object TaskRegistrar {
 
             if (!coverageEnabled) return@register
 
-            for (project in targets) {
+            for (project in perModuleCoverage(covered, rootProject, rootKoverUnwired, coverageTool)) {
                 when (coverageTool) {
                     CoverageExtension.Tool.JACOCO -> {
                         dependOnIfExists(task, project, "jacocoTestReport", excludedTasks)
@@ -147,7 +155,9 @@ internal object TaskRegistrar {
                 task.dependsOn("jacocoOverallCoverageReport")
                 task.dependsOn("jacocoOverallCoverageVerification")
             }
-            if (coverageTool == CoverageExtension.Tool.KOVER) {
+            // Skipped targets (root included) must not get a report/verify back here, and neither may
+            // the merge of every module's tests; see rootKoverUnwired.
+            if (coverageTool == CoverageExtension.Tool.KOVER && !rootKoverUnwired) {
                 // Either merged-* (multi-module) or single-module — exactly one set is
                 // expected to exist. Use the silent helper here so the absent half
                 // doesn't fire a spurious warning. If BOTH are missing, the per-project
