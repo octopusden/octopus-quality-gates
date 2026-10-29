@@ -3205,4 +3205,181 @@ class OctopusQualityPluginFunctionalTest {
         assertTrue(":lib:test" in tasks && ":app:test" in tasks, "got: $tasks")
         assertFalse(result.output.contains("merged coverage"), "no warning without an excluded test; got: ${result.output}")
     }
+
+    // ===============================================================
+    // excludeProjects matches by project path; a bare name still matches project.name but is
+    // deprecated (#10). Fixture: two projects that share the name `core`, `:a:core` and `:b:core`.
+    // ===============================================================
+
+    private fun sameNameCoresBuild(quality: String): BuildResult {
+        settingsFile(kotlinSettings("test-exclude-projects", """include(":a:core", ":b:core")"""))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25" apply false
+                id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+                id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+                id("org.jetbrains.kotlinx.kover") version "0.9.4" apply false
+                id("org.octopusden.octopus-quality")
+            }
+            subprojects {
+                apply(plugin = "org.jetbrains.kotlin.jvm")
+                apply(plugin = "io.gitlab.arturbosch.detekt")
+                apply(plugin = "org.jlleitschuh.gradle.ktlint")
+                apply(plugin = "org.jetbrains.kotlinx.kover")
+                repositories { mavenCentral() }
+            }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                $quality
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("a/core/src/main/kotlin/com/example/A.kt", "package com.example\nfun a() = 1\n")
+        writeKotlinFile("b/core/src/main/kotlin/com/example/B.kt", "package com.example\nfun b() = 2\n")
+        return runner("qualityCoverage", "--dry-run").build()
+    }
+
+    @Test
+    fun `excludeProjects by path excludes only that project`() {
+        val result = sameNameCoresBuild("""excludeProjects(":a:core")""")
+        val tasks = scheduledTasks(result)
+
+        assertFalse(":a:core:koverVerify" in tasks, "the excluded path must lose its coverage gate; got: $tasks")
+        assertTrue(":b:core:koverVerify" in tasks, "the same-named sibling must keep its gate; got: $tasks")
+        assertFalse(result.output.contains("octopusQuality: excludeProjects"), "a matching path entry must not warn; got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects by bare name still excludes every project with that name and warns`() {
+        val result = sameNameCoresBuild("""excludeProjects("core")""")
+        val tasks = scheduledTasks(result)
+
+        assertFalse(":a:core:koverVerify" in tasks, "got: $tasks")
+        assertFalse(":b:core:koverVerify" in tasks, "got: $tasks")
+        assertTrue(
+            result.output.contains("octopusQuality: excludeProjects(\"core\") matches by project name"),
+            "a bare name must warn; got: ${result.output}",
+        )
+        assertTrue(
+            result.output.contains("""excludeProjects(":a:core", ":b:core")"""),
+            "the suggestion must list every project the entry matched; got: ${result.output}",
+        )
+    }
+
+    @Test
+    fun `excludeProjects entry that matches no project warns`() {
+        val result = sameNameCoresBuild("""excludeProjects(":nope")""")
+
+        assertTrue(result.output.contains("""excludeProjects(":nope") matched no project"""), "got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects entry with a colon but no leading colon suggests the path form`() {
+        val result = sameNameCoresBuild("""excludeProjects("a:core")""")
+
+        assertTrue(result.output.contains("""use excludeProjects(":a:core")"""), "got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects judges a match against coverage candidates, not a source-less aggregator root`() {
+        val result = sameNameCoresBuild("""excludeProjects(":")""")
+
+        assertTrue(result.output.contains("""excludeProjects(":") matched no project"""), "got: ${result.output}")
+    }
+
+    @Test
+    fun `excludeProjects of the root in a single-module build drops its coverage tasks`() {
+        settingsFile(kotlinSettings("test-exclude-root-project"))
+        buildFile(
+            """
+            plugins {
+                kotlin("jvm") version "1.9.25"
+                id("org.jetbrains.kotlinx.kover") version "0.9.4"
+                id("org.octopusden.octopus-quality")
+            }
+            repositories { mavenCentral() }
+            octopusQuality {
+                kotlin { failOnViolation.set(false) }
+                excludeProjects(":")
+            }
+            """.trimIndent(),
+        )
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 1\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":koverXmlReport" in tasks, "got: $tasks")
+        assertFalse(":koverVerify" in tasks, "got: $tasks")
+    }
+
+    // ---------------------------------------------------------------
+    // excludeProjects(":") (root dropped) composed with an excluded module test (merged-report rule)
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `composition - source-carrying root excluded by path drops its Kover tasks and keeps lib wired`() {
+        settingsFile(kotlinSettings("test-compose-root-excluded", """include("lib")"""))
+        buildFile(koverSourceRootBuild("""excludeProjects(":")"""))
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 1\n")
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":koverXmlReport" in tasks, "excluded root must not get its own report; got: $tasks")
+        assertFalse(":koverVerify" in tasks, "excluded root must not get its own verify; got: $tasks")
+        assertTrue(":lib:koverVerify" in tasks, "got: $tasks")
+    }
+
+    @Test
+    fun `composition - source-carrying excluded root and an excluded module test keep both out`() {
+        settingsFile(kotlinSettings("test-compose-root-and-lib", """include("lib")"""))
+        buildFile(koverSourceRootBuild("""excludeProjects(":"); excludeTasks(":lib:test")"""))
+        writeKotlinFile("src/main/kotlin/com/example/Root.kt", "package com.example\nfun root() = 1\n")
+        writeKotlinFile("lib/src/main/kotlin/com/example/Lib.kt", "package com.example\nfun lib() = 42\n")
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":lib:test" in tasks, "got: $tasks")
+        assertTrue(tasks.none { it.startsWith(":kover") }, "no root Kover task may be scheduled; got: $tasks")
+        assertFalse(":lib:koverVerify" in tasks, "got: $tasks")
+    }
+
+    @Test
+    fun `composition - source-less aggregator with excludeProjects of the root still drops the merge under an excluded test`() {
+        settingsFile(kotlinSettings("test-compose-aggregator", """include("lib", "app")"""))
+        buildFile(koverAggregatorBuild("""excludeProjects(":"); excludeTasks(":lib:test")"""))
+        writeLibAndApp()
+
+        val tasks = scheduledTasks(runner("qualityCoverage", "--dry-run").build())
+
+        assertFalse(":lib:test" in tasks, "got: $tasks")
+        assertFalse(":koverXmlReport" in tasks, "got: $tasks")
+        assertFalse(":koverVerify" in tasks, "got: $tasks")
+        assertTrue(":app:koverVerify" in tasks, "got: $tasks")
+    }
+
+    private fun koverSourceRootBuild(quality: String) =
+        """
+        plugins {
+            kotlin("jvm") version "1.9.25"
+            id("io.gitlab.arturbosch.detekt") version "1.23.5" apply false
+            id("org.jlleitschuh.gradle.ktlint") version "14.0.1" apply false
+            id("org.jetbrains.kotlinx.kover") version "0.9.4"
+            id("org.octopusden.octopus-quality")
+        }
+        repositories { mavenCentral() }
+        dependencies { kover(project(":lib")) }
+        subprojects {
+            apply(plugin = "org.jetbrains.kotlin.jvm")
+            apply(plugin = "io.gitlab.arturbosch.detekt")
+            apply(plugin = "org.jlleitschuh.gradle.ktlint")
+            apply(plugin = "org.jetbrains.kotlinx.kover")
+            repositories { mavenCentral() }
+        }
+        octopusQuality {
+            kotlin { failOnViolation.set(false) }
+            $quality
+        }
+        """.trimIndent()
 }

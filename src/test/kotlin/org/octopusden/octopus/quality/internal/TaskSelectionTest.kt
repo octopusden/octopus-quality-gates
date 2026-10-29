@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class TaskSelectionTest {
+    private val cores = mapOf(":" to "root", ":a" to "a", ":a:core" to "core", ":b:core" to "core")
+
     // A bare name excludes the task in every module.
     @Test
     fun `bare task name excludes the task in a subproject`() {
@@ -116,5 +118,67 @@ class TaskSelectionTest {
         assertEquals(listOf(":app"), perModuleCoverage(covered, ":", rootKoverUnwired = true, tool = kover))
         assertEquals(covered, perModuleCoverage(covered, ":", rootKoverUnwired = false, tool = kover))
         assertEquals(covered, perModuleCoverage(covered, ":", rootKoverUnwired = true, tool = jacoco))
+    }
+
+    // --- project exclusion ---
+
+    // An entry starting with ":" is a path and matches exactly that project.
+    @Test
+    fun `a path entry excludes only the project at that path`() {
+        val excluded = setOf(":a:core")
+        assertTrue(isProjectExcluded(":a:core", "core", excluded))
+        assertFalse(isProjectExcluded(":b:core", "core", excluded))
+        assertFalse(isProjectExcluded(":a", "a", excluded))
+    }
+
+    // A path is never a prefix: excluding :a does not exclude :a:core.
+    @Test
+    fun `a path entry does not match nested projects`() {
+        assertFalse(isProjectExcluded(":a:core", "core", setOf(":a")))
+    }
+
+    // Backward compatible: a bare name matches project.name, in every module that has it.
+    @Test
+    fun `a bare entry matches by project name`() {
+        val excluded = setOf("core")
+        assertTrue(isProjectExcluded(":a:core", "core", excluded))
+        assertTrue(isProjectExcluded(":b:core", "core", excluded))
+        assertFalse(isProjectExcluded(":a", "a", excluded))
+    }
+
+    // A bare entry never matches by path text, and a path entry never by name.
+    @Test
+    fun `a path is not compared with the name and a name is not compared with the path`() {
+        assertFalse(isProjectExcluded(":core", "other", setOf("core")))
+        assertFalse(isProjectExcluded(":x:core", ":a:core", setOf(":a:core")))
+    }
+
+    @Test
+    fun `a path entry that matches a project produces no warning`() {
+        assertEquals(emptyList<String>(), excludeProjectsWarnings(setOf(":a:core"), cores))
+    }
+
+    @Test
+    fun `a bare entry warns as deprecated and names every project it matched`() {
+        val warning = excludeProjectsWarnings(setOf("core"), cores).single()
+        assertTrue(warning.contains("deprecated"))
+        assertTrue(warning.contains("""excludeProjects(":a:core", ":b:core")"""), warning)
+    }
+
+    @Test
+    fun `an entry with a colon but no leading colon suggests the path form`() {
+        val warning = excludeProjectsWarnings(setOf("a:core"), cores).single()
+        assertTrue(warning.contains("""use excludeProjects(":a:core")"""), warning)
+    }
+
+    @Test
+    fun `an entry matching no project warns`() {
+        assertTrue(excludeProjectsWarnings(setOf(":nope"), cores).single().contains("matched no project"))
+        assertTrue(excludeProjectsWarnings(setOf("nope"), cores).single().contains("matched no project"))
+    }
+
+    @Test
+    fun `an empty exclusion set excludes no project`() {
+        assertFalse(isProjectExcluded(":a:core", "core", emptySet()))
     }
 }

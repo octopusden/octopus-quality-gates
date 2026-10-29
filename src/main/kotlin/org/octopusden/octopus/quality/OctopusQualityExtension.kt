@@ -16,7 +16,13 @@ open class OctopusQualityExtension
         val java: JavaExtension = objects.newInstance(JavaExtension::class.java)
         val groovy: GroovyExtension = objects.newInstance(GroovyExtension::class.java)
 
-        /** Subproject names to exclude from coverage verification (qualityCoverage). */
+        /**
+         * Subprojects to exclude from coverage verification (qualityCoverage), by project path,
+         * e.g. `":a:core"`; only that project is excluded.
+         *
+         * A bare name (e.g. `"core"`) still matches every project with that name, but is deprecated:
+         * it logs a warning naming each project it matched. An entry that matches no project also warns.
+         */
         val coverageExcludedProjects: SetProperty<String> = objects.setProperty(String::class.java).convention(emptySet())
 
         /**
@@ -56,6 +62,7 @@ open class OctopusQualityExtension
             excludedTasks.addAll(*tasks)
         }
 
+        /** Excludes projects from coverage; see [coverageExcludedProjects] for the path and bare-name forms. */
         fun excludeProjects(vararg projects: String) {
             coverageExcludedProjects.addAll(*projects)
         }

@@ -69,33 +69,6 @@ internal fun <T> perModuleCoverage(
     tool: CoverageExtension.Tool?,
 ): List<T> = if (rootKoverUnwired && tool == CoverageExtension.Tool.KOVER) covered - root else covered
 
-private val COVERAGE_TASK_NAMES =
-    setOf(
-        "jacocoTestReport",
-        "jacocoTestCoverageVerification",
-        "koverXmlReport",
-        "koverVerify",
-        "koverMergedXmlReport",
-        "koverMergedVerify",
-    )
-
-/**
- * Warns, for each of [skipped] that actually has a coverage report/verify task, that its coverage
- * floor is not enforced by `qualityCoverage`. No-op when coverage is not [enabled].
- */
-internal fun warnCoverageNotEnforced(
-    skipped: List<Project>,
-    enabled: Boolean,
-) {
-    if (!enabled) return
-    for (project in skipped.filter { p -> p.tasks.names.any { it in COVERAGE_TASK_NAMES } }) {
-        project.logger.warn(
-            "octopusQuality: '${project.path}' has its test task excluded, so its coverage floor is " +
-                "NOT enforced by qualityCoverage. To make that explicit, use excludeProjects(\"${project.path}\").",
-        )
-    }
-}
-
 /**
  * Warns once that the root's merged Kover report/floor is not checked by `qualityCoverage` while
  * the `test` tasks of [skipped] are excluded. No-op unless coverage runs with Kover ([tool], null
@@ -111,4 +84,55 @@ internal fun warnMergedCoverageNotChecked(
         "octopusQuality: the merged coverage report and floor are NOT checked by qualityCoverage while " +
             "test tasks are excluded (${skipped.joinToString { qualifiedTaskPath(it.path, "test") }}).",
     )
+}
+
+/**
+ * True when the project at [projectPath] named [projectName] is excluded by an `excludeProjects`
+ * entry. An entry starting with ":" is a project path and matches exactly that project; any other
+ * entry is a bare name matched against the project name (deprecated, see
+ * [warnOnExcludeProjectsMismatch]).
+ */
+internal fun isProjectExcluded(
+    projectPath: String,
+    projectName: String,
+    excludedProjects: Set<String>,
+): Boolean = excludedProjects.any { entryMatches(it, projectPath, projectName) }
+
+private fun entryMatches(
+    entry: String,
+    projectPath: String,
+    projectName: String,
+): Boolean = if (entry.startsWith(":")) entry == projectPath else entry == projectName
+
+/**
+ * Messages for `excludeProjects` entries that do not do what they probably meant, given the coverage
+ * candidates as a map of project path to name: a bare name (deprecated, the suggestion lists every
+ * matched path), an entry like `a:core` that is a path missing its leading colon, and an entry
+ * matching no candidate at all.
+ */
+internal fun excludeProjectsWarnings(
+    excludedProjects: Set<String>,
+    projects: Map<String, String>,
+): List<String> =
+    excludedProjects.mapNotNull { entry ->
+        val matched = projects.filter { (path, name) -> entryMatches(entry, path, name) }.keys
+        when {
+            entry.contains(':') && !entry.startsWith(":") ->
+                "octopusQuality: excludeProjects(\"$entry\") is not a project path (paths start with ':'); " +
+                    "use excludeProjects(\":$entry\")."
+            matched.isEmpty() -> "octopusQuality: excludeProjects(\"$entry\") matched no project."
+            !entry.startsWith(":") ->
+                "octopusQuality: excludeProjects(\"$entry\") matches by project name, which is deprecated; " +
+                    "it matched ${matched.joinToString()}. Use the project path instead, " +
+                    "e.g. excludeProjects(${matched.joinToString { "\"$it\"" }})."
+            else -> null
+        }
+    }
+
+internal fun warnOnExcludeProjectsMismatch(
+    rootProject: Project,
+    excludedProjects: Set<String>,
+) {
+    excludeProjectsWarnings(excludedProjects, coverageCandidates(rootProject).associate { it.path to it.name })
+        .forEach { rootProject.logger.warn(it) }
 }
